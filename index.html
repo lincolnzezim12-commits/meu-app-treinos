@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111418">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Meus Treinos</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -26,13 +28,15 @@
       <p id="contagem" class="contagem"></p>
     </section>
 
+    <button id="btnComecar" class="btn sucesso enorme comecar">▶ Começar treino</button>
+
     <ul id="lista" class="lista"></ul>
 
     <p id="vazio" class="vazio" hidden>Nenhum exercício ainda. Toque em <b>+ Exercício</b> para começar.</p>
 
     <div class="acoes">
       <button id="btnAdd" class="btn primario">+ Exercício</button>
-      <button id="btnConcluir" class="btn sucesso">Concluir treino</button>
+      <button id="btnConcluir" class="btn leve">Concluir treino</button>
     </div>
 
     <section class="historico">
@@ -48,11 +52,48 @@
     </section>
   </main>
 
-  <!-- Timer de descanso -->
-  <div id="timer" class="timer" hidden>
-    <span id="timerTexto">01:00</span>
-    <button id="timerParar" class="btn leve">Parar</button>
-  </div>
+  <!-- Tela de treino (um exercício por vez) -->
+  <section id="modo" class="modo" hidden aria-label="Treinando">
+    <header class="modo-topo">
+      <button id="mFechar" class="redondo" aria-label="Sair da tela de treino">✕</button>
+      <div class="modo-titulo">
+        <div id="mTreino"></div>
+        <small id="mPosicao"></small>
+      </div>
+      <div class="relogio" title="Tempo total de treino">⏱ <span id="mTotal">00:00</span></div>
+    </header>
+
+    <div class="modo-corpo">
+      <div id="mMidia" class="midia"></div>
+
+      <div class="m-cab">
+        <h2 id="mNome"></h2>
+        <button id="mEditar" class="redondo" aria-label="Editar exercício">✎</button>
+      </div>
+      <p id="mInfo" class="m-info"></p>
+      <p id="mObs" class="obs"></p>
+
+
+    </div>
+
+    <footer class="modo-botoes">
+      <div id="mFase" class="fase">
+        <div id="mBolinhas" class="bolinhas"></div>
+        <div id="mRotulo" class="fase-rotulo"></div>
+        <div id="mTempo" class="fase-tempo">00:00</div>
+        <div id="mProx" class="fase-prox"></div>
+      </div>
+      <button id="mAcao" class="btn sucesso enorme"></button>
+      <div class="linha-botoes">
+        <button id="mAnterior" class="btn leve">◀</button>
+        <button id="mDesfazer" class="btn leve">Desfazer série</button>
+        <button id="mMais15" class="btn leve">+15s</button>
+        <button id="mProximo" class="btn leve">▶</button>
+      </div>
+    </footer>
+  </section>
+
+  <div id="flash" class="flash" hidden></div>
 
   <!-- Formulário de exercício -->
   <dialog id="dlg">
@@ -62,13 +103,17 @@
         <input name="nome" required maxlength="60" placeholder="Ex.: Supino reto">
       </label>
       <div class="linha">
-        <label>Séries <input name="series" type="number" min="1" max="20" value="3"></label>
+        <label>Séries <input name="series" type="number" min="1" max="20" value="3" inputmode="numeric"></label>
         <label>Repetições <input name="reps" maxlength="10" value="12" placeholder="12 ou 8-10"></label>
       </div>
       <div class="linha">
-        <label>Carga (kg) <input name="carga" type="number" min="0" step="0.5" placeholder="0"></label>
-        <label>Descanso (s) <input name="descanso" type="number" min="0" step="5" value="60"></label>
+        <label>Carga (kg) <input name="carga" type="number" min="0" step="0.5" placeholder="0" inputmode="decimal"></label>
+        <label>Descanso (s) <input name="descanso" type="number" min="0" step="5" value="60" inputmode="numeric"></label>
       </div>
+      <label>Vídeo de como fazer (link, opcional)
+        <input name="video" maxlength="300" placeholder="Cole um link do YouTube, GIF ou MP4" inputmode="url" autocapitalize="off">
+      </label>
+      <p class="dica">Dica: abra o YouTube, ache um vídeo do exercício, toque em <b>Compartilhar → Copiar link</b> e cole aqui.</p>
       <label>Observações
         <input name="obs" maxlength="120" placeholder="Ex.: drop-set na última">
       </label>
