@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111418">
+  <title>Meus Treinos</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topo">
+    <h1>Meus Treinos</h1>
+    <p id="proximo" class="proximo"></p>
+  </header>
+
+  <nav id="abas" class="abas" aria-label="Treinos"></nav>
+
+  <main>
+    <section class="cabecalho-treino">
+      <input id="nomeTreino" class="nome-treino" maxlength="40" aria-label="Nome do treino"
+             placeholder="Ex.: Peito e tríceps">
+      <div class="progresso"><div id="barra" class="barra"></div></div>
+      <p id="contagem" class="contagem"></p>
+    </section>
+
+    <ul id="lista" class="lista"></ul>
+
+    <p id="vazio" class="vazio" hidden>Nenhum exercício ainda. Toque em <b>+ Exercício</b> para começar.</p>
+
+    <div class="acoes">
+      <button id="btnAdd" class="btn primario">+ Exercício</button>
+      <button id="btnConcluir" class="btn sucesso">Concluir treino</button>
+    </div>
+
+    <section class="historico">
+      <h2>Histórico</h2>
+      <ul id="historico"></ul>
+    </section>
+
+    <section class="backup">
+      <button id="btnExportar" class="btn leve">Exportar backup</button>
+      <label class="btn leve">Importar backup
+        <input id="inpImportar" type="file" accept="application/json" hidden>
+      </label>
+    </section>
+  </main>
+
+  <!-- Timer de descanso -->
+  <div id="timer" class="timer" hidden>
+    <span id="timerTexto">01:00</span>
+    <button id="timerParar" class="btn leve">Parar</button>
+  </div>
+
+  <!-- Formulário de exercício -->
+  <dialog id="dlg">
+    <form id="form" method="dialog">
+      <h2 id="dlgTitulo">Novo exercício</h2>
+      <label>Exercício
+        <input name="nome" required maxlength="60" placeholder="Ex.: Supino reto">
+      </label>
+      <div class="linha">
+        <label>Séries <input name="series" type="number" min="1" max="20" value="3"></label>
+        <label>Repetições <input name="reps" maxlength="10" value="12" placeholder="12 ou 8-10"></label>
+      </div>
+      <div class="linha">
+        <label>Carga (kg) <input name="carga" type="number" min="0" step="0.5" placeholder="0"></label>
+        <label>Descanso (s) <input name="descanso" type="number" min="0" step="5" value="60"></label>
+      </div>
+      <label>Observações
+        <input name="obs" maxlength="120" placeholder="Ex.: drop-set na última">
+      </label>
+      <div class="dlg-acoes">
+        <button type="button" id="btnExcluir" class="btn perigo">Excluir</button>
+        <span class="espaco"></span>
+        <button type="button" id="btnCancelar" class="btn leve">Cancelar</button>
+        <button type="submit" class="btn primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
