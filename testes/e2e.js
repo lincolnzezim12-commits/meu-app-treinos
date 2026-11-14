@@ -262,6 +262,39 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   assert.equal(await p.textContent('#iDescansos'), '1');
   ok('dia de descanso registrado');
 
+  // 9b) Progresso semanal: segunda a domingo, dias verdes, tabela, horas e check nos treinos
+  const info = await p.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('meus-treinos-v1'));
+    const hojeD = new Date();
+    const seg = new Date(hojeD); seg.setDate(seg.getDate() - ((seg.getDay() + 6) % 7)); seg.setHours(18, 0, 0, 0);
+    const hj = new Date(hojeD); hj.setHours(7, 0, 0, 0);
+    const passada = new Date(seg); passada.setDate(passada.getDate() - 5);
+    const reg = (d, t, dur) => ({ programa: 'projeto-v-4.0', treino: t, nome: st.treinos[t].nome, data: d.toISOString(), feitos: 6, total: 6, series: 20, seriesPlanejadas: 21, duracao: dur, volume: 4000 });
+    st.historico = [reg(hj, 1, 3000), reg(seg, 0, 3900), reg(passada, 2, 3600)];
+    st.descansos = [];
+    localStorage.setItem('meus-treinos-v1', JSON.stringify(st));
+    return { mesmoDia: seg.toDateString() === hj.toDateString() };
+  });
+  await p.reload();
+  assert.deepEqual(await p.locator('#sDias .sd-nome').allTextContents(), ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']);
+  assert.equal(await p.locator('#sDias .sem-dia.treinou').count(), info.mesmoDia ? 1 : 2);
+  assert.equal(await p.textContent('#sDias .sem-dia:first-child .sd-treino'), info.mesmoDia ? 'T1 T2' : 'T1');
+  assert.equal(await p.locator('#sTabela tbody tr').count(), 2);
+  assert.equal(await p.textContent('#sTabela tfoot td:nth-child(3)'), '1h55');
+  assert.equal(await p.textContent('#sKpis div:nth-child(2) b'), '1h55');
+  assert.equal(await p.locator('#sChecklist .sc-item.ok').count(), 2);
+  assert.equal(await p.locator('.card-treino.feito-semana').count(), 2);
+  assert.ok((await p.textContent('.card-treino >> nth=0')).includes('✓ feito Seg'));
+  await shot('07-semana');
+  await p.click('#sAnterior');
+  assert.equal(await p.locator('#sTabela tbody tr').count(), 1);
+  assert.match(await p.textContent('#sRotulo'), /Semana passada/);
+  await p.click('#sProxima');
+  await p.click('.menu [data-ir=vTreinos]');
+  assert.equal(await p.locator('.aba.feita-semana').count(), 2);
+  await p.click('.menu [data-ir=vInicio]');
+  ok(`semana: dias verdes com T1/T2, tabela com duração e total (1h55), check verde nos treinos feitos, semana passada separada`);
+
   // 10) Offline: com o service worker ativo, o app abre sem internet
   await p.evaluate(() => navigator.serviceWorker.ready);
   await p.reload(); // garante que a página está controlada pelo SW

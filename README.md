@@ -5,6 +5,10 @@ Funciona no celular e no computador, offline, e salva tudo no próprio aparelho.
 
 ## O que tem
 
+- **Progresso semanal** (segunda a domingo, zera toda segunda às 00h): dias treinados em verde
+  com T1…T5, dias de descanso, check verde em cada treino feito na semana (também nos cards e
+  nas abas), tabela com dia, hora, treino, tempo, séries e volume, e total de horas da semana.
+  Semanas anteriores ficam salvas (‹ ›).
 - **Início**: progresso dos 90 dias, treino atual (sequência 1 → 5, sem dias fixos da semana),
   treinos concluídos, séries feitas, dias de descanso, os 5 treinos com **INICIAR TREINO**
   e o histórico recente.

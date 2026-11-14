@@ -394,11 +394,15 @@
     // Cards dos 5 treinos
     const lista = $('iTreinosLista');
     lista.innerHTML = '';
+    const semana = feitosEstaSemana();
     estado.treinos.forEach((tr, k) => {
       const ult = estado.historico.find((x) => x.treino === k && doPrograma(x));
       const ns = tr.exercicios.reduce((a, e) => a + e.series, 0);
-      lista.append(h('div', { class: 'card-treino' + (k === i ? ' proximo-treino' : '') },
-        h('div', { class: 'num' }, `TREINO ${k + 1}`, k === i ? h('span', { class: 'selo', text: s ? 'em andamento' : 'próximo' }) : null),
+      const feitoSem = semana.filter((x) => x.treino === k);
+      lista.append(h('div', { class: 'card-treino' + (k === i ? ' proximo-treino' : '') + (feitoSem.length ? ' feito-semana' : '') },
+        h('div', { class: 'num' }, `TREINO ${k + 1}`,
+          feitoSem.length ? h('span', { class: 'selo verde', text: `✓ feito ${feitoSem.map((x) => diaSemana(diaDoRegistro(x))).join(', ')}` }) : null,
+          k === i ? h('span', { class: 'selo', text: s ? 'em andamento' : 'próximo' }) : null),
         h('h3', { text: tr.nome || 'Sem nome' }),
         tr.objetivo ? h('p', { text: tr.objetivo }) : null,
         h('p', { text: `${tr.exercicios.length} exercícios · ${ns} séries · ${ult ? 'último: ' + haQuanto(ult.data) : 'ainda não feito'}` }),
@@ -408,10 +412,100 @@
         ),
       ));
     });
+    renderSemana();
     renderHistorico();
     renderDados();
     renderAvisos();
   }
+
+  // ---------- Progresso semanal (segunda a domingo; zera toda segunda às 00h) ----------
+  const DIAS_SEM = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+  let semanaOffset = 0; // 0 = semana atual, -1 = anterior...
+  function inicioSemana(ref) { const d = diaLocal(ref); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return isoDia(d); }
+  const diaDoRegistro = (x) => isoDia(diaLocal(x.data));
+  const diaSemana = (iso) => DIAS_SEM[(diaLocal(iso).getDay() + 6) % 7];
+  function treinosDaSemana(ini) {
+    const fim = somaDias(ini, 7);
+    return estado.historico
+      .filter((x) => !estado.programa || doPrograma(x))
+      .filter((x) => { const d = diaDoRegistro(x); return d >= ini && d < fim; })
+      .sort((a, b) => (a.data < b.data ? -1 : 1));
+  }
+  const feitosEstaSemana = () => treinosDaSemana(inicioSemana(hoje()));
+  // Duração em horas e minutos: 3480 s → "0h58", 11880 s → "3h18"
+  const hm = (seg) => { if (!seg) return ''; const m = Math.round(seg / 60); return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`; };
+
+  function renderSemana() {
+    const ini = somaDias(inicioSemana(hoje()), 7 * semanaOffset);
+    const lista = treinosDaSemana(ini);
+    const dm = (iso) => diaLocal(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    $('sRotulo').textContent = semanaOffset === 0 ? 'Esta semana' : semanaOffset === -1 ? 'Semana passada' : `Há ${-semanaOffset} semanas`;
+    $('sTitulo').textContent = `${dm(ini)} – ${dm(somaDias(ini, 6))}`;
+    $('sProxima').disabled = semanaOffset >= 0;
+    const p = estado.perfil || (PROGRAMA && PROGRAMA.perfil);
+    const primeira = inicioSemana(p ? p.inicio : hoje());
+    const maisAntiga = estado.historico.reduce((m, x) => { const w = inicioSemana(diaDoRegistro(x)); return w < m ? w : m; }, primeira);
+    $('sAnterior').disabled = ini <= maisAntiga;
+
+    const segTotal = lista.reduce((a, x) => a + num(x.duracao), 0);
+    const distintos = new Set(lista.map((x) => x.treino)).size;
+    const k = $('sKpis'); k.innerHTML = '';
+    k.append(
+      h('div', {}, h('b', { text: `${distintos}/${TOTAL_TREINOS}` }), h('span', { text: lista.length > distintos ? `treinos (${lista.length} sessões)` : 'treinos feitos' })),
+      h('div', {}, h('b', { text: hm(segTotal) || '0h00' }), h('span', { text: 'horas na semana' })),
+      h('div', {}, h('b', { text: String(lista.reduce((a, x) => a + num(x.series), 0)) }), h('span', { text: 'séries' })),
+    );
+
+    // 7 dias
+    const dias = $('sDias'); dias.innerHTML = '';
+    for (let i = 0; i < 7; i++) {
+      const d = somaDias(ini, i);
+      const doDia = lista.filter((x) => diaDoRegistro(x) === d);
+      const descanso = estado.descansos.includes(d);
+      const cls = ['sem-dia', doDia.length ? 'treinou' : descanso ? 'descansou' : '', d === hoje() ? 'hoje' : '', d > hoje() ? 'futuro' : ''].filter(Boolean).join(' ');
+      dias.append(h('div', { class: cls, role: 'listitem', 'aria-label': `${DIAS_SEM[i]} ${dm(d)}: ${doDia.length ? doDia.map((x) => rotulo(x.treino)).join(', ') : descanso ? 'descanso' : 'sem treino'}` },
+        h('span', { class: 'sd-nome', text: DIAS_SEM[i] }),
+        h('span', { class: 'sd-bola', text: doDia.length ? '✓' : descanso ? '–' : String(diaLocal(d).getDate()) }),
+        h('span', { class: 'sd-treino', text: doDia.length ? doDia.map((x) => `T${x.treino + 1}`).join(' ') : descanso ? 'desc.' : '' })));
+    }
+
+    // checklist dos 5 treinos
+    const ch = $('sChecklist'); ch.innerHTML = '';
+    for (let t = 0; t < TOTAL_TREINOS; t++) {
+      const f = lista.filter((x) => x.treino === t);
+      ch.append(h('div', { class: 'sc-item' + (f.length ? ' ok' : ''), title: nomeTreino(t) },
+        h('b', { text: f.length ? '✓' : String(t + 1) }),
+        h('span', { text: `Treino ${t + 1}` }),
+        h('small', { text: f.length ? f.map((x) => diaSemana(diaDoRegistro(x))).join(', ') : 'pendente' })));
+    }
+
+    // tabela
+    const tb = $('sTabela'); tb.innerHTML = '';
+    if (!lista.length) {
+      tb.append(h('p', { class: 'nota-peq sem-vazio', text: semanaOffset === 0 ? 'Nenhum treino finalizado nesta semana ainda. Ao finalizar um treino, ele aparece aqui.' : 'Nenhum treino nesta semana.' }));
+      return;
+    }
+    const curta = (seg) => hm(seg) || '—';
+    const linhas = lista.map((x) => h('tr', {},
+      h('td', {}, h('b', { text: `${diaSemana(diaDoRegistro(x))} ${dm(diaDoRegistro(x))}` }), h('small', { text: horaCurta(x.data) })),
+      h('td', {}, h('b', { text: `Treino ${x.treino + 1}` }), h('small', { text: x.nome || '' })),
+      h('td', {}, h('b', { text: curta(x.duracao) })),
+      h('td', {}, h('b', { text: String(num(x.series)) }), x.seriesPlanejadas ? h('small', { text: `de ${x.seriesPlanejadas}` }) : null),
+      h('td', {}, h('b', { text: x.volume ? fmtKg(x.volume) : '—' }), x.volume ? h('small', { text: 'kg' }) : null)));
+    const volTot = lista.reduce((a, x) => a + num(x.volume), 0);
+    tb.append(h('table', { class: 'tabela-sem' },
+      h('thead', {}, h('tr', {}, ['Dia', 'Treino', 'Tempo', 'Séries', 'Volume'].map((c) => h('th', { text: c })))),
+      h('tbody', {}, linhas),
+      h('tfoot', {}, h('tr', {},
+        h('td', { text: 'Total' }), h('td', {}, `${lista.length} treino${lista.length > 1 ? 's' : ''}`),
+        h('td', {}, curta(segTotal)),
+        h('td', {}, String(lista.reduce((a, x) => a + num(x.series), 0))),
+        h('td', {}, volTot ? fmtKg(volTot) : '—', volTot ? h('small', { text: 'kg' }) : null)))));
+  }
+  $('sAnterior').onclick = () => { semanaOffset--; renderSemana(); };
+  $('sProxima').onclick = () => { if (semanaOffset < 0) { semanaOffset++; renderSemana(); } };
+  // Se o app ficar aberto e virar a semana (segunda 00h), atualiza ao voltar para ele.
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && vista === 'vInicio') renderInicio(); });
 
   function renderDados() {
     $('dUltimoBackup').textContent = estado.ultimoBackup
@@ -505,12 +599,14 @@
   function renderAbas() {
     const abas = $('abas');
     abas.innerHTML = '';
+    const semana = feitosEstaSemana();
     estado.treinos.forEach((t, i) => {
+      const feitoSem = semana.some((x) => x.treino === i);
       abas.append(h('button', {
-        class: 'aba' + (i === estado.atual ? ' ativa' : ''),
+        class: 'aba' + (i === estado.atual ? ' ativa' : '') + (feitoSem ? ' feita-semana' : ''),
         'aria-label': rotulo(i) + (t.nome ? ` — ${t.nome}` : ''),
         onclick: () => { estado.atual = i; salvar(); renderVista(); },
-      }, String(i + 1), h('small', { text: t.nome || `${t.exercicios.length} exerc.` })));
+      }, feitoSem ? `${i + 1} ✓` : String(i + 1), h('small', { text: t.nome || `${t.exercicios.length} exerc.` })));
     });
   }
 

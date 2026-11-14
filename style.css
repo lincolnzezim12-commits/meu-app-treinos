@@ -448,3 +448,51 @@ dialog[open] { animation: entrar .18s ease-out; }
   .stepper button, .stepper input { height: 42px; }
   .linha-botoes .btn { padding: 8px 4px; }
 }
+
+/* ---------- Progresso semanal ---------- */
+.sem-nav { display: flex; align-items: center; gap: 6px; font-size: .78rem; color: var(--suave); }
+.redondo.peq { width: 30px; height: 30px; font-size: 1.1rem; line-height: 1; }
+.redondo:disabled { opacity: .3; }
+.sem-dias { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 14px; }
+.sem-dia { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.sd-nome { font-size: .68rem; color: var(--suave); text-transform: uppercase; letter-spacing: .04em; }
+.sd-bola {
+  width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+  border: 2px solid var(--borda); color: var(--suave); font-weight: 700; font-size: .85rem; font-variant-numeric: tabular-nums;
+}
+.sd-treino { font-size: .66rem; font-weight: 700; color: var(--verde); min-height: 1em; text-align: center; white-space: nowrap; }
+.sem-dia.treinou .sd-bola { background: var(--verde); border-color: var(--verde); color: #0b1a10; font-size: 1.05rem; }
+.sem-dia.descansou .sd-bola { border-style: dashed; color: var(--suave); }
+.sem-dia.descansou .sd-treino { color: var(--suave); font-weight: 500; }
+.sem-dia.hoje .sd-nome { color: var(--destaque); font-weight: 700; }
+.sem-dia.hoje:not(.treinou) .sd-bola { border-color: var(--destaque); color: var(--destaque); }
+.sem-dia.futuro .sd-bola { opacity: .45; }
+.sem-check { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 14px; }
+.sc-item {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; border-radius: 12px; min-width: 0;
+  background: var(--fundo); border: 1px solid var(--borda); text-align: center;
+}
+.sc-item b { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--borda); color: var(--suave); font-size: .8rem; }
+.sc-item span { font-size: .7rem; font-weight: 600; }
+.sc-item small { font-size: .64rem; color: var(--suave); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.sc-item.ok { border-color: rgba(60, 207, 122, .5); background: rgba(60, 207, 122, .08); }
+.sc-item.ok b { background: var(--verde); border-color: var(--verde); color: #0b1a10; }
+.sc-item.ok small { color: var(--verde); }
+.tabela-sem { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: .8rem; font-variant-numeric: tabular-nums; table-layout: fixed; }
+.tabela-sem th { color: var(--suave); font-weight: 600; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--borda); }
+.tabela-sem td { padding: 8px 4px; border-bottom: 1px solid var(--borda); vertical-align: top; overflow: hidden; text-overflow: ellipsis; }
+.tabela-sem td small { display: block; color: var(--suave); font-size: .68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tabela-sem th:nth-child(1), .tabela-sem td:nth-child(1) { width: 23%; }
+.tabela-sem th:nth-child(2), .tabela-sem td:nth-child(2) { width: 27%; }
+.tabela-sem th:nth-child(3), .tabela-sem td:nth-child(3) { width: 14%; }
+.tabela-sem th:nth-child(4), .tabela-sem td:nth-child(4) { width: 13%; }
+.tabela-sem th:nth-child(5), .tabela-sem td:nth-child(5) { width: 23%; }
+.tabela-sem th:nth-child(n+3), .tabela-sem td:nth-child(n+3) { text-align: right; }
+.tabela-sem td b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sem-rotulo { display: block; text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--texto); font-size: .9rem; margin-top: 2px; }
+.sem-nav span { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tabela-sem tfoot td { font-weight: 700; color: var(--destaque); border-bottom: none; }
+.sem-vazio { margin-top: 14px; }
+.selo.verde { border-color: var(--verde); color: var(--verde); }
+.card-treino.feito-semana:not(.proximo-treino) { border-color: rgba(60, 207, 122, .45); }
+.aba.feita-semana:not(.ativa) { border-color: rgba(60, 207, 122, .6); color: var(--verde); }
