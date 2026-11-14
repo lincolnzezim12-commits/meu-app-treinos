@@ -68,29 +68,66 @@
 
       <div class="m-cab">
         <h2 id="mNome"></h2>
+        <button id="mStats" class="redondo" aria-label="Resumo e histórico do exercício">📊</button>
         <button id="mEditar" class="redondo" aria-label="Editar exercício">✎</button>
       </div>
-      <p id="mInfo" class="m-info"></p>
+      <p id="mMeta" class="m-meta"></p>
       <p id="mObs" class="obs"></p>
-
-
+      <div id="mFeitas" class="feitas"></div>
     </div>
 
     <footer class="modo-botoes">
       <div id="mFase" class="fase">
-        <div id="mBolinhas" class="bolinhas"></div>
-        <div id="mRotulo" class="fase-rotulo"></div>
+        <div class="fase-linha">
+          <div id="mRotulo" class="fase-rotulo"></div>
+          <div id="mBolinhas" class="bolinhas"></div>
+        </div>
         <div id="mTempo" class="fase-tempo">00:00</div>
         <div id="mProx" class="fase-prox"></div>
       </div>
+
+      <div id="mEntrada" class="entrada">
+        <div class="campo">
+          <span>Repetições</span>
+          <div class="stepper">
+            <button type="button" data-campo="reps" data-passo="-1" aria-label="Menos repetições">−</button>
+            <input id="inReps" type="number" inputmode="numeric" min="0" step="1" aria-label="Repetições">
+            <button type="button" data-campo="reps" data-passo="1" aria-label="Mais repetições">+</button>
+          </div>
+        </div>
+        <div class="campo">
+          <span>Peso (kg)</span>
+          <div class="stepper">
+            <button type="button" data-campo="kg" data-passo="-1" aria-label="Menos peso">−</button>
+            <input id="inKg" type="number" inputmode="decimal" min="0" step="0.5" aria-label="Peso em kg">
+            <button type="button" data-campo="kg" data-passo="1" aria-label="Mais peso">+</button>
+          </div>
+        </div>
+      </div>
+
       <button id="mAcao" class="btn sucesso enorme"></button>
       <div class="linha-botoes">
-        <button id="mAnterior" class="btn leve">◀</button>
+        <button id="mAnterior" class="btn leve" aria-label="Exercício anterior">◀</button>
         <button id="mDesfazer" class="btn leve">Desfazer série</button>
+        <button id="mMenos15" class="btn leve">−15s</button>
         <button id="mMais15" class="btn leve">+15s</button>
-        <button id="mProximo" class="btn leve">▶</button>
+        <button id="mProximo" class="btn leve" aria-label="Próximo exercício">▶</button>
       </div>
     </footer>
+  </section>
+
+  <!-- Resumo / Histórico / Como fazer de um exercício -->
+  <section id="det" class="modo det" hidden aria-label="Detalhes do exercício">
+    <header class="modo-topo">
+      <button id="dFechar" class="redondo" aria-label="Voltar">←</button>
+      <div class="modo-titulo"><div id="dNome"></div><small id="dSub"></small></div>
+    </header>
+    <nav class="det-abas" role="tablist">
+      <button role="tab" data-aba="resumo">Resumo</button>
+      <button role="tab" data-aba="historico">Histórico</button>
+      <button role="tab" data-aba="como">Como fazer</button>
+    </nav>
+    <div id="dCorpo" class="modo-corpo"></div>
   </section>
 
   <div id="flash" class="flash" hidden></div>

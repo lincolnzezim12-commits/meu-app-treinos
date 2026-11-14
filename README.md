@@ -10,10 +10,15 @@ App simples para organizar os treinos da academia: **Treino 1, 2, 3, 4 e 5**.
   - mostra o vídeo de como fazer (link do YouTube, GIF ou MP4 colado no exercício)
     ou um botão para buscar o vídeo no YouTube;
   - cronômetro da série e do treino inteiro;
-  - "Terminei a série" marca a série e começa o descanso;
+  - em cada série você ajusta **repetições** e **peso** com − / + (ou digitando);
+    o app já sugere o que você fez na série anterior / no último treino;
+  - "Concluir série" registra reps × peso daquela série e começa o descanso;
   - quando o descanso acaba, toca um bip, vibra, a tela pisca e já passa para a
     próxima série (ou para o próximo exercício);
   - botões para pular o descanso, +15s, desfazer série e trocar de exercício.
+- **📊 Resumo / Histórico / Como fazer** de cada exercício: recordes (peso máximo,
+  1RM estimado, evolução), melhor série, volume, frequência, gráfico de evolução e
+  a lista de todos os treinos com o peso e as repetições de cada série.
 - **Concluir treino**: salva no histórico (com o tempo total), zera as séries e já abre o próximo treino da sequência.
 - Exportar/importar backup em arquivo `.json`.
 

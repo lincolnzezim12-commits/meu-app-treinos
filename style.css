@@ -151,7 +151,7 @@ body.treinando { overflow: hidden; }
 .midia {
   position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden;
   background: var(--card); border: 1px solid var(--borda);
-  height: 26vh; aspect-ratio: auto;
+  height: 24vh; aspect-ratio: auto;
 }
 .midia iframe, .midia video, .midia img { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; background: #000; }
 .midia .sem-video {
@@ -164,16 +164,16 @@ body.treinando { overflow: hidden; }
 .m-cab { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 .m-cab h2 { flex: 1; margin: 0; font-size: 1.45rem; overflow-wrap: anywhere; }
 .m-info { margin: 4px 0 0; color: var(--texto); font-size: 1rem; }
-.bolinhas { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-bottom: 8px; }
+.bolinhas { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
 .bolinha {
-  min-width: 30px; height: 30px; padding: 0 6px; border-radius: 15px; font-size: .85rem; display: grid; place-items: center;
+  min-width: 24px; height: 24px; padding: 0 5px; border-radius: 12px; font-size: .75rem; display: grid; place-items: center;
   border: 2px solid var(--borda); color: var(--suave); font-weight: 700;
 }
 .bolinha.feita { background: var(--verde); border-color: var(--verde); color: #111; }
 .bolinha.atual { border-color: var(--destaque); color: var(--destaque); }
-.fase { text-align: center; margin-bottom: 12px; padding: 10px 12px; border-radius: 16px; background: var(--card); border: 1px solid var(--borda); }
+.fase { text-align: center; margin-bottom: 10px; padding: 8px 12px; border-radius: 16px; background: var(--card); border: 1px solid var(--borda); }
 .fase-rotulo { font-size: 1rem; font-weight: 600; color: var(--suave); text-transform: uppercase; letter-spacing: .06em; }
-.fase-tempo { font-size: 2.8rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; margin-top: 4px; }
+.fase-tempo { font-size: 2.5rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; margin-top: 4px; }
 .fase-prox { color: var(--suave); font-size: .9rem; margin-top: 4px; }
 .fase.descanso { border-color: var(--destaque); }
 .fase.descanso .fase-rotulo, .fase.descanso .fase-tempo { color: var(--destaque); }
@@ -184,3 +184,65 @@ body.treinando { overflow: hidden; }
 .linha-botoes .btn { flex: 1; padding: 10px 6px; }
 .flash { position: fixed; inset: 0; z-index: 20; background: var(--verde); pointer-events: none; animation: piscar 1.2s ease-out forwards; }
 @keyframes piscar { 0%, 30% { opacity: .55; } 100% { opacity: 0; } }
+
+.fase-linha { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.m-meta { margin: 4px 0 0; color: var(--texto); font-size: .95rem; }
+.m-meta span { color: var(--suave); }
+.feitas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.feitas span {
+  font-size: .8rem; padding: 4px 10px; border-radius: 999px;
+  background: rgba(46, 204, 113, .12); color: var(--verde); border: 1px solid rgba(46, 204, 113, .35);
+}
+.entrada { display: flex; gap: 10px; margin-bottom: 10px; }
+.campo { flex: 1; min-width: 0; }
+.campo > span { display: block; font-size: .78rem; color: var(--suave); margin-bottom: 4px; }
+.stepper { display: flex; gap: 6px; }
+.stepper button {
+  flex: none; width: 44px; height: 48px; border-radius: 12px; font-size: 1.4rem; line-height: 1;
+  border: 1px solid var(--borda); background: var(--card); color: var(--texto); cursor: pointer;
+}
+.stepper button:active { background: var(--borda); }
+.stepper input {
+  flex: 1; min-width: 0; height: 48px; text-align: center; font-size: 1.3rem; font-weight: 700;
+  border-radius: 12px; border: 1px solid var(--borda); background: var(--fundo); color: var(--texto);
+  font-variant-numeric: tabular-nums; -moz-appearance: textfield;
+}
+.stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.stepper input:focus { outline: none; border-color: var(--destaque); }
+.ultima { color: var(--suave); }
+
+/* ---------- Detalhes do exercício ---------- */
+.det { z-index: 12; }
+.det-abas { display: flex; border-bottom: 1px solid var(--borda); }
+.det-abas button {
+  flex: 1; background: none; border: none; color: var(--suave); font-size: .95rem; font-weight: 600;
+  padding: 12px 4px; border-bottom: 2px solid transparent; cursor: pointer;
+}
+.det-abas button.ativa { color: var(--destaque); border-bottom-color: var(--destaque); }
+.det h3 { font-size: 1.05rem; margin: 18px 0 8px; }
+.det h3:first-child { margin-top: 4px; }
+.cartao { background: var(--card); border: 1px solid var(--borda); border-radius: 14px; padding: 0 14px; }
+.linha-stat { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--borda); }
+.linha-stat:last-child { border-bottom: none; }
+.linha-stat > span:first-child { color: var(--suave); }
+.linha-stat b { text-align: right; font-weight: 700; }
+.linha-stat small { display: block; color: var(--suave); font-weight: 400; font-size: .75rem; }
+.vazio-det { color: var(--suave); text-align: center; padding: 32px 8px; }
+.sessao { background: var(--card); border: 1px solid var(--borda); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+.sessao-topo { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.sessao-topo b { font-size: .95rem; }
+.sessao ol { margin: 8px 0 0; padding-left: 20px; color: var(--texto); font-size: .9rem; }
+.sessao ol li { padding: 2px 0; }
+.sessao .vol { color: var(--suave); font-size: .8rem; margin-top: 6px; }
+.link-perigo { background: none; border: none; color: var(--vermelho); font-size: .8rem; cursor: pointer; padding: 4px; }
+.grafico { position: relative; padding-top: 34px; }
+.grafico svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
+.grafico .tip {
+  position: absolute; top: 0; transform: translateX(-50%); pointer-events: none;
+  background: var(--fundo); border: 1px solid var(--borda); border-radius: 8px; padding: 4px 8px;
+  font-size: .78rem; white-space: nowrap; color: var(--suave);
+}
+.grafico .tip b { color: var(--texto); font-size: .9rem; }
+.legenda-graf { color: var(--suave); font-size: .8rem; margin: 6px 0 0; }
+.como-texto { color: var(--texto); line-height: 1.5; }
+.item .stats { flex: none; }

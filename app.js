@@ -4,16 +4,20 @@
 
   const CHAVE = 'meus-treinos-v1';
   const TOTAL_TREINOS = 5;
+  const COR_GRAFICO = '#e8650c';
 
   const $ = (id) => document.getElementById(id);
 
   // ---------- Estado ----------
+  // exercício: { id, nome, series, reps, carga, descanso, video, obs, feitas: [{reps, kg}] }
+  // log: { [idExercicio]: [{ data, treino, series: [{reps, kg}] }] }  ← histórico por exercício
   function estadoInicial() {
     return {
       atual: 0,
       treinos: Array.from({ length: TOTAL_TREINOS }, () => ({ nome: '', exercicios: [] })),
-      historico: [], // { treino, nome, data, feitos, total }
-      sessao: null,  // treino em andamento (tela de treino)
+      historico: [],
+      log: {},
+      sessao: null,
     };
   }
 
@@ -25,6 +29,9 @@
     return estadoInicial();
   }
 
+  const num = (v, padrao = 0) => (Number.isFinite(Number(v)) && v !== '' && v != null ? Number(v) : padrao);
+  const serie = (x) => ({ reps: Math.max(0, Math.round(num(x && x.reps))), kg: Math.max(0, num(x && x.kg)) });
+
   function normalizar(dados) {
     const base = estadoInicial();
     base.atual = Number.isInteger(dados.atual) ? Math.min(Math.max(dados.atual, 0), TOTAL_TREINOS - 1) : 0;
@@ -33,23 +40,35 @@
       if (!t) continue;
       base.treinos[i].nome = String(t.nome || '');
       base.treinos[i].exercicios = (Array.isArray(t.exercicios) ? t.exercicios : []).map((e) => {
-        const series = Math.max(1, Number(e.series) || 1);
-        let feitas = Number(e.seriesFeitas);
-        if (!Number.isFinite(feitas)) feitas = e.feito ? series : 0; // versão antiga
-        return {
+        const ex = {
           id: e.id || novoId(),
           nome: String(e.nome || ''),
-          series,
+          series: Math.max(1, num(e.series, 1)),
           reps: String(e.reps ?? ''),
-          carga: e.carga === '' || e.carga == null ? '' : Number(e.carga),
-          descanso: Math.max(0, Number(e.descanso) || 0),
+          carga: e.carga === '' || e.carga == null ? '' : num(e.carga),
+          descanso: Math.max(0, num(e.descanso)),
           video: String(e.video || ''),
           obs: String(e.obs || ''),
-          seriesFeitas: Math.min(Math.max(0, feitas), series),
+          feitas: [],
         };
+        if (Array.isArray(e.feitas)) ex.feitas = e.feitas.map(serie);
+        else { // versões antigas: só contavam as séries
+          const n = Number.isFinite(Number(e.seriesFeitas)) ? Number(e.seriesFeitas) : (e.feito ? ex.series : 0);
+          for (let k = 0; k < Math.min(n, ex.series); k++) ex.feitas.push({ reps: metaReps(ex), kg: num(ex.carga) });
+        }
+        ex.feitas = ex.feitas.slice(0, ex.series);
+        return ex;
       });
     }
-    base.historico = Array.isArray(dados.historico) ? dados.historico.slice(0, 100) : [];
+    base.historico = Array.isArray(dados.historico) ? dados.historico.slice(0, 200) : [];
+    if (dados.log && typeof dados.log === 'object') {
+      for (const [id, lista] of Object.entries(dados.log)) {
+        if (!Array.isArray(lista)) continue;
+        base.log[id] = lista
+          .filter((s) => s && s.data && Array.isArray(s.series))
+          .map((s) => ({ data: String(s.data), treino: num(s.treino), series: s.series.map(serie) }));
+      }
+    }
     const s = dados.sessao;
     if (s && Number.isInteger(s.treino) && base.treinos[s.treino]) base.sessao = s;
     return base;
@@ -65,9 +84,15 @@
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
+  // ---------- Utilidades ----------
   const treinoAtual = () => estado.treinos[estado.atual];
   const rotulo = (i) => `Treino ${i + 1}`;
-  const feito = (e) => e.seriesFeitas >= e.series;
+  const feito = (e) => e.feitas.length >= e.series;
+  function metaReps(e) { const m = String(e.reps).match(/\d+/); return m ? Number(m[0]) : 10; }
+  const fmtKg = (v) => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+  const fmtSerie = (s) => `${fmtKg(s.kg)} kg × ${s.reps}`;
+  const umRM = (s) => (s.kg > 0 && s.reps > 0 ? s.kg * (1 + s.reps / 30) : 0); // fórmula de Epley
+  const volume = (series) => series.reduce((t, s) => t + s.kg * s.reps, 0);
   const mmss = (seg) => {
     seg = Math.max(0, Math.floor(seg));
     const h = Math.floor(seg / 3600);
@@ -75,11 +100,31 @@
     const s = String(seg % 60).padStart(2, '0');
     return h ? `${h}:${m}:${s}` : `${m}:${s}`;
   };
+  const dataCurta = (iso) => new Date(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  function haQuanto(iso) {
+    const d0 = new Date(iso); d0.setHours(0, 0, 0, 0);
+    const d1 = new Date(); d1.setHours(0, 0, 0, 0);
+    const dias = Math.round((d1 - d0) / 86400000);
+    if (dias <= 0) return 'hoje';
+    if (dias === 1) return 'ontem';
+    return `há ${dias} dias`;
+  }
   function descricao(e) {
     const p = [`${e.series} × ${e.reps || '-'}`];
-    if (e.carga !== '' && e.carga != null) p.push(`${e.carga} kg`);
+    if (e.carga !== '' && e.carga != null) p.push(`${fmtKg(e.carga)} kg`);
     if (e.descanso) p.push(`${e.descanso}s descanso`);
     return p.join(' · ');
+  }
+  const sessoesDe = (e) => estado.log[e.id] || [];
+  const ultimaSessao = (e) => { const l = sessoesDe(e); return l[l.length - 1] || null; };
+
+  // Valor sugerido para a série i: o que fez na série anterior de hoje;
+  // senão o que fez nessa série no último treino; senão a meta cadastrada.
+  function sugestao(e, i) {
+    if (i > 0 && e.feitas[i - 1]) return { ...e.feitas[i - 1] };
+    const u = ultimaSessao(e);
+    if (u && u.series.length) return { ...(u.series[i] || u.series[u.series.length - 1]) };
+    return { reps: metaReps(e), kg: num(e.carga) };
   }
 
   // ---------- Tela principal ----------
@@ -136,7 +181,8 @@
     check.textContent = feito(e) ? '✓' : '';
     check.setAttribute('aria-label', feito(e) ? 'Desmarcar' : 'Marcar como feito');
     check.onclick = () => {
-      e.seriesFeitas = feito(e) ? 0 : e.series;
+      if (feito(e)) e.feitas = [];
+      else while (e.feitas.length < e.series) e.feitas.push(sugestao(e, e.feitas.length));
       salvar(); render();
     };
 
@@ -150,10 +196,18 @@
     det.className = 'detalhes';
     det.textContent = descricao(e);
     info.append(titulo, det);
-    if (e.seriesFeitas > 0 && !feito(e)) {
+    if (e.feitas.length && !feito(e)) {
       const s = document.createElement('div');
       s.className = 'detalhes series-mini';
-      s.textContent = `${e.seriesFeitas}/${e.series} séries feitas`;
+      s.textContent = `${e.feitas.length}/${e.series} séries feitas`;
+      info.appendChild(s);
+    }
+    const u = ultimaSessao(e);
+    if (u && u.series.length) {
+      const s = document.createElement('div');
+      s.className = 'detalhes ultima';
+      const melhor = u.series.reduce((a, b) => (b.kg > a.kg ? b : a));
+      s.textContent = `Última: ${fmtSerie(melhor)} (${haQuanto(u.data)})`;
       info.appendChild(s);
     }
     if (e.obs) {
@@ -162,6 +216,12 @@
       o.textContent = e.obs;
       info.appendChild(o);
     }
+
+    const stats = document.createElement('button');
+    stats.className = 'btn leve pequeno stats';
+    stats.textContent = '📊';
+    stats.setAttribute('aria-label', 'Resumo e histórico');
+    stats.onclick = () => abrirDetalhes(e.id);
 
     const editar = document.createElement('button');
     editar.className = 'btn leve pequeno editar';
@@ -176,7 +236,7 @@
       botaoMini('▼', 'Mover para baixo', idx === total - 1, () => moverExercicio(idx, 1)),
     );
 
-    li.append(check, info, editar, mover);
+    li.append(check, info, stats, editar, mover);
     return li;
   }
 
@@ -197,7 +257,7 @@
     if (alvo < 0 || alvo >= arr.length) return;
     [arr[idx], arr[alvo]] = [arr[alvo], arr[idx]];
     const s = sessaoDoAtual();
-    if (s) { // mantém a tela de treino no mesmo exercício
+    if (s) {
       if (s.ex === idx) s.ex = alvo; else if (s.ex === alvo) s.ex = idx;
       if (s.prox === idx) s.prox = alvo; else if (s.prox === alvo) s.prox = idx;
     }
@@ -217,11 +277,10 @@
       const li = document.createElement('li');
       const a = document.createElement('span');
       a.textContent = `${rotulo(h.treino)}${h.nome ? ' — ' + h.nome : ''} (${h.feitos}/${h.total})`
-        + (h.duracao ? ` · ${mmss(h.duracao)}` : '');
+        + (h.duracao ? ` · ${mmss(h.duracao)}` : '')
+        + (h.volume ? ` · ${fmtKg(h.volume)} kg` : '');
       const b = document.createElement('span');
-      b.textContent = new Date(h.data).toLocaleDateString('pt-BR', {
-        weekday: 'short', day: '2-digit', month: '2-digit',
-      });
+      b.textContent = dataCurta(h.data);
       li.append(a, b);
       ul.appendChild(li);
     });
@@ -275,10 +334,10 @@
     if (!nome) { form.nome.focus(); return; }
     const dados = {
       nome,
-      series: Math.max(1, Number(form.series.value) || 1),
+      series: Math.max(1, num(form.series.value, 1)),
       reps: form.reps.value.trim(),
-      carga: form.carga.value === '' ? '' : Number(form.carga.value),
-      descanso: Math.max(0, Number(form.descanso.value) || 0),
+      carga: form.carga.value === '' ? '' : num(form.carga.value),
+      descanso: Math.max(0, num(form.descanso.value)),
       video: form.video.value.trim(),
       obs: form.obs.value.trim(),
     };
@@ -286,29 +345,32 @@
     if (editandoId) {
       const e = lista.find((x) => x.id === editandoId);
       Object.assign(e, dados);
-      e.seriesFeitas = Math.min(e.seriesFeitas, e.series);
+      e.feitas = e.feitas.slice(0, e.series);
     } else {
-      lista.push({ id: novoId(), seriesFeitas: 0, ...dados });
+      lista.push({ id: novoId(), feitas: [], ...dados });
     }
     salvar(); dlg.close(); render();
     if (modoAberto()) { midiaDe = null; renderModo(); }
+    if (!$('det').hidden) renderDetalhes();
   });
 
   $('btnCancelar').onclick = () => dlg.close();
   $('btnExcluir').onclick = () => {
-    if (!editandoId || !confirm('Excluir este exercício?')) return;
+    if (!editandoId || !confirm('Excluir este exercício? O histórico dele também será apagado.')) return;
     const t = treinoAtual();
     const idx = t.exercicios.findIndex((x) => x.id === editandoId);
     t.exercicios.splice(idx, 1);
+    delete estado.log[editandoId];
     const s = sessaoDoAtual();
     if (s) {
       if (!t.exercicios.length) { estado.sessao = null; fecharModo(); }
       else {
         if (s.ex > idx || s.ex >= t.exercicios.length) s.ex = Math.max(0, s.ex - 1);
         if (s.prox > idx || s.prox >= t.exercicios.length) s.prox = Math.max(0, s.prox - 1);
+        delete s.entrada;
       }
     }
-    salvar(); dlg.close(); render();
+    salvar(); dlg.close(); fecharDetalhes(); render();
     if (modoAberto()) { midiaDe = null; renderModo(); }
   };
 
@@ -335,15 +397,23 @@
   function concluirTreino() {
     const t = treinoAtual();
     const s = sessaoDoAtual();
+    const agora = new Date().toISOString();
+    let vol = 0;
+    t.exercicios.forEach((e) => {
+      if (!e.feitas.length) return;
+      (estado.log[e.id] = estado.log[e.id] || []).push({ data: agora, treino: estado.atual, series: e.feitas.map(serie) });
+      vol += volume(e.feitas);
+    });
     estado.historico.unshift({
-      treino: estado.atual, nome: t.nome, data: new Date().toISOString(),
+      treino: estado.atual, nome: t.nome, data: agora,
       feitos: t.exercicios.filter(feito).length, total: t.exercicios.length,
       duracao: s ? Math.round(((s.fimTreino || Date.now()) - s.inicio) / 1000) : 0,
+      volume: Math.round(vol),
     });
-    estado.historico = estado.historico.slice(0, 100);
-    t.exercicios.forEach((e) => { e.seriesFeitas = 0; });
+    estado.historico = estado.historico.slice(0, 200);
+    t.exercicios.forEach((e) => { e.feitas = []; });
     estado.sessao = null;
-    estado.atual = proximoTreinoApos(estado.atual); // já deixa o próximo aberto
+    estado.atual = proximoTreinoApos(estado.atual);
     salvar();
     fecharModo();
     render();
@@ -351,11 +421,11 @@
   }
 
   // ---------- Tela de treino ----------
-  // sessao: { treino, inicio, ex, fase: 'serie'|'descanso'|'completo', desde, fim, prox, fimTreino }
+  // sessao: { treino, inicio, ex, fase: 'serie'|'descanso'|'completo', desde, fim, prox, fimTreino, entrada }
   const sessaoDoAtual = () => (estado.sessao && estado.sessao.treino === estado.atual ? estado.sessao : null);
   const modoAberto = () => !$('modo').hidden;
   let loop = null;
-  let midiaDe = null; // id do exercício cuja mídia está na tela
+  let midiaDe = null;
   let wakeLock = null;
 
   function primeiroPendente(t, aPartirDe = 0) {
@@ -391,9 +461,9 @@
 
   function fecharModo() {
     $('modo').hidden = true;
-    document.body.classList.remove('treinando');
+    if ($('det').hidden) document.body.classList.remove('treinando');
     clearInterval(loop); loop = null;
-    $('mMidia').innerHTML = ''; // para o vídeo
+    $('mMidia').innerHTML = '';
     midiaDe = null;
     if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
     renderTreino();
@@ -403,19 +473,40 @@
     const s = sessaoDoAtual();
     const n = treinoAtual().exercicios.length;
     if (!s || i < 0 || i >= n) return;
-    s.ex = i; s.fase = 'serie'; s.desde = Date.now();
-    delete s.fim; delete s.prox; delete s.fimTreino;
+    s.ex = i; s.fase = feito(treinoAtual().exercicios[i]) && primeiroPendente(treinoAtual()) === -1 ? 'completo' : 'serie';
+    s.desde = Date.now();
+    delete s.fim; delete s.prox; delete s.entrada;
+    if (s.fase === 'serie') delete s.fimTreino;
+  }
+
+  // Exercício e série que estão na tela agora (no descanso, já mostra o que vem a seguir).
+  function exibido() {
+    const s = sessaoDoAtual();
+    const t = treinoAtual();
+    const idx = s.fase === 'descanso' ? s.prox : s.ex;
+    const e = t.exercicios[idx];
+    return { s, t, idx, e, i: Math.min(e.feitas.length, e.series - 1) };
+  }
+
+  function entradaAtual() {
+    const { s, e, i } = exibido();
+    const chave = `${e.id}:${i}`;
+    if (!s.entrada || s.entrada.chave !== chave) s.entrada = { chave, ...sugestao(e, i) };
+    return s.entrada;
   }
 
   function terminarSerie() {
     const s = sessaoDoAtual();
     const t = treinoAtual();
     const e = t.exercicios[s.ex];
-    e.seriesFeitas = Math.min(e.series, e.seriesFeitas + 1);
+    if (feito(e)) { irPara(primeiroPendente(t, s.ex + 1)); salvar(); renderModo(); return; }
+    const ent = entradaAtual();
+    e.feitas.push(serie(ent));
+    delete s.entrada;
     let prox = s.ex;
     if (feito(e)) {
       prox = primeiroPendente(t, s.ex + 1);
-      if (prox === -1) { // acabou tudo
+      if (prox === -1) {
         s.fase = 'completo'; s.fimTreino = Date.now();
         alertar();
         salvar(); renderModo(); renderTreino();
@@ -434,7 +525,9 @@
     const s = sessaoDoAtual();
     if (!s) return;
     if (s.fase === 'descanso' && Date.now() >= s.fim) {
-      irPara(s.prox); // descanso acabou: já vai para a próxima série
+      const ent = s.entrada; // mantém o que a pessoa ajustou durante o descanso
+      irPara(s.prox);
+      if (ent) s.entrada = ent;
       salvar();
       alertar();
       renderModo();
@@ -456,35 +549,63 @@
     const s = sessaoDoAtual();
     const t = treinoAtual();
     if (!s || !t.exercicios.length) { fecharModo(); return; }
-    // Durante o descanso já mostra o que vem a seguir.
-    const idx = s.fase === 'descanso' ? s.prox : s.ex;
-    const e = t.exercicios[idx];
+    const { idx, e, i } = exibido();
 
     $('mTreino').textContent = rotulo(estado.atual) + (t.nome ? ` — ${t.nome}` : '');
     $('mPosicao').textContent = `Exercício ${idx + 1} de ${t.exercicios.length}`;
     $('mNome').textContent = e.nome;
-    $('mInfo').textContent = descricao(e);
     $('mObs').textContent = e.obs;
-    if (midiaDe !== e.id + '|' + e.video) { midiaDe = e.id + '|' + e.video; renderMidia(e); }
+    if (midiaDe !== e.id + '|' + e.video) { midiaDe = e.id + '|' + e.video; renderMidia($('mMidia'), e); }
+
+    // Meta e última vez
+    const meta = $('mMeta');
+    meta.innerHTML = '';
+    meta.append(`Meta: ${e.reps || '-'} reps`);
+    const u = ultimaSessao(e);
+    if (u && u.series.length) {
+      const sp = document.createElement('span');
+      sp.textContent = ` · Última: ${fmtSerie(u.series[i] || u.series[u.series.length - 1])}`;
+      meta.appendChild(sp);
+    }
+
+    // Séries já feitas hoje
+    const fe = $('mFeitas');
+    fe.innerHTML = '';
+    e.feitas.forEach((x, k) => {
+      const c = document.createElement('span');
+      c.textContent = `S${k + 1}: ${fmtSerie(x)}`;
+      fe.appendChild(c);
+    });
 
     const bol = $('mBolinhas');
     bol.innerHTML = '';
-    for (let i = 0; i < e.series; i++) {
+    for (let k = 0; k < e.series; k++) {
       const d = document.createElement('div');
-      d.className = 'bolinha' + (i < e.seriesFeitas ? ' feita' : (i === e.seriesFeitas && s.fase !== 'completo' ? ' atual' : ''));
-      d.textContent = i < e.seriesFeitas ? '✓' : String(i + 1);
+      d.className = 'bolinha' + (k < e.feitas.length ? ' feita' : (k === e.feitas.length && s.fase !== 'completo' ? ' atual' : ''));
+      d.textContent = k < e.feitas.length ? '✓' : String(k + 1);
       bol.appendChild(d);
     }
 
-    const fase = $('mFase');
-    fase.className = 'fase ' + s.fase;
+    $('mFase').className = 'fase ' + s.fase;
     const acao = $('mAcao');
-    const numSerie = Math.min(e.seriesFeitas + 1, e.series);
-    if (s.fase === 'serie') {
+    const numSerie = i + 1;
+    const ent = s.fase !== 'completo' && !feito(e) ? entradaAtual() : null;
+    $('mEntrada').hidden = !ent;
+    if (ent) {
+      if (document.activeElement !== $('inReps')) $('inReps').value = ent.reps;
+      if (document.activeElement !== $('inKg')) $('inKg').value = ent.kg;
+    }
+    if (s.fase === 'serie' && !feito(e)) {
       $('mRotulo').textContent = `Série ${numSerie} de ${e.series}`;
-      $('mProx').textContent = `${e.reps || '-'} repetições${e.carga !== '' ? ` · ${e.carga} kg` : ''}`;
-      acao.textContent = '✓ Terminei a série';
+      $('mProx').textContent = '';
+      acao.textContent = '✓ Concluir série';
       acao.className = 'btn sucesso enorme';
+    } else if (s.fase === 'serie') { // abriu um exercício que já terminou
+      $('mRotulo').textContent = 'Exercício feito';
+      $('mTempo').textContent = '✓';
+      $('mProx').textContent = 'Toque em “Desfazer série” para corrigir';
+      acao.textContent = 'Ir para o próximo ▶';
+      acao.className = 'btn primario enorme';
     } else if (s.fase === 'descanso') {
       $('mRotulo').textContent = 'Descanso';
       $('mProx').textContent = idx === s.ex
@@ -499,13 +620,36 @@
       acao.textContent = '✓ Concluir treino';
       acao.className = 'btn sucesso enorme';
     }
-    $('mMais15').hidden = s.fase !== 'descanso';
-    $('mDesfazer').hidden = s.fase === 'descanso';
-    $('mDesfazer').disabled = e.seriesFeitas === 0;
-    $('mAnterior').disabled = s.fase === 'descanso' || s.ex === 0;
-    $('mProximo').disabled = s.fase === 'descanso' || s.ex >= t.exercicios.length - 1;
+    const descansando = s.fase === 'descanso';
+    $('mMais15').hidden = !descansando;
+    $('mMenos15').hidden = !descansando;
+    $('mDesfazer').hidden = descansando;
+    $('mDesfazer').disabled = t.exercicios[s.ex].feitas.length === 0;
+    $('mAnterior').disabled = descansando || s.ex === 0;
+    $('mProximo').disabled = descansando || s.ex >= t.exercicios.length - 1;
     atualizarTempos();
   }
+
+  // --- steppers de repetições e peso ---
+  document.querySelectorAll('.stepper button').forEach((b) => {
+    b.onclick = () => {
+      const ent = entradaAtual();
+      const campo = b.dataset.campo;
+      const passo = Number(b.dataset.passo);
+      ent[campo] = Math.max(0, Math.round((num(ent[campo]) + passo) * 10) / 10);
+      salvar(); renderModo();
+    };
+  });
+  [['inReps', 'reps'], ['inKg', 'kg']].forEach(([id, campo]) => {
+    $(id).addEventListener('input', (ev) => {
+      const v = ev.target.value.replace(',', '.');
+      if (v === '' || !Number.isFinite(Number(v))) return;
+      entradaAtual()[campo] = Math.max(0, campo === 'reps' ? Math.round(Number(v)) : Number(v));
+      salvar();
+    });
+    $(id).addEventListener('focus', (ev) => ev.target.select());
+    $(id).addEventListener('blur', () => renderModo());
+  });
 
   // --- vídeo / animação de como fazer ---
   function idYoutube(url) {
@@ -513,8 +657,7 @@
     return m ? m[1] : null;
   }
 
-  function renderMidia(e) {
-    const box = $('mMidia');
+  function renderMidia(box, e) {
     box.innerHTML = '';
     const url = e.video;
     const yt = url && idYoutube(url);
@@ -530,7 +673,7 @@
       Object.assign(v, { src: url, autoplay: true, muted: true, loop: true, playsInline: true, controls: true });
       box.appendChild(v);
     } else if (url && /^https?:\/\//i.test(url)) {
-      const img = document.createElement('img'); // GIF / imagem
+      const img = document.createElement('img');
       img.src = url; img.alt = `Como fazer: ${e.nome}`;
       img.onerror = () => { box.innerHTML = ''; box.appendChild(semVideo(e, url)); };
       box.appendChild(img);
@@ -565,32 +708,281 @@
 
   // --- botões da tela de treino ---
   $('mFechar').onclick = fecharModo;
-  $('mEditar').onclick = () => {
-    const s = sessaoDoAtual();
-    const idx = s.fase === 'descanso' ? s.prox : s.ex;
-    abrirForm(treinoAtual().exercicios[idx].id);
-  };
+  $('mEditar').onclick = () => abrirForm(exibido().e.id);
+  $('mStats').onclick = () => abrirDetalhes(exibido().e.id);
   $('mAcao').onclick = () => {
     const s = sessaoDoAtual();
     if (!s) return;
     destravarAudio();
     if (s.fase === 'serie') terminarSerie();
-    else if (s.fase === 'descanso') { irPara(s.prox); salvar(); renderModo(); }
-    else concluirTreino();
+    else if (s.fase === 'descanso') {
+      const ent = s.entrada;
+      irPara(s.prox);
+      if (ent) s.entrada = ent;
+      salvar(); renderModo();
+    } else concluirTreino();
   };
-  $('mMais15').onclick = () => {
+  const ajustarDescanso = (ms) => {
     const s = sessaoDoAtual();
-    if (s && s.fase === 'descanso') { s.fim += 15000; salvar(); atualizarTempos(); }
+    if (s && s.fase === 'descanso') { s.fim = Math.max(Date.now(), s.fim + ms); salvar(); tickModo(); }
   };
+  $('mMais15').onclick = () => ajustarDescanso(15000);
+  $('mMenos15').onclick = () => ajustarDescanso(-15000);
   $('mDesfazer').onclick = () => {
     const s = sessaoDoAtual();
     const e = treinoAtual().exercicios[s.ex];
-    if (e.seriesFeitas > 0) e.seriesFeitas--;
+    const ultima = e.feitas.pop();
     s.fase = 'serie'; s.desde = Date.now(); delete s.fimTreino;
+    s.entrada = ultima ? { chave: `${e.id}:${e.feitas.length}`, ...ultima } : undefined;
     salvar(); renderModo(); renderTreino();
   };
   $('mAnterior').onclick = () => { irPara(sessaoDoAtual().ex - 1); salvar(); renderModo(); };
   $('mProximo').onclick = () => { irPara(sessaoDoAtual().ex + 1); salvar(); renderModo(); };
+
+  // ---------- Detalhes do exercício: Resumo / Histórico / Como fazer ----------
+  let detId = null;
+  let detAba = 'resumo';
+
+  function acharExercicio(id) {
+    for (const t of estado.treinos) {
+      const e = t.exercicios.find((x) => x.id === id);
+      if (e) return e;
+    }
+    return null;
+  }
+
+  function abrirDetalhes(id, aba = 'resumo') {
+    detId = id; detAba = aba;
+    $('det').hidden = false;
+    document.body.classList.add('treinando');
+    renderDetalhes();
+  }
+  function fecharDetalhes() {
+    $('det').hidden = true;
+    $('dCorpo').innerHTML = '';
+    if (!modoAberto()) document.body.classList.remove('treinando');
+  }
+  $('dFechar').onclick = fecharDetalhes;
+  document.querySelectorAll('.det-abas button').forEach((b) => {
+    b.onclick = () => { detAba = b.dataset.aba; renderDetalhes(); };
+  });
+
+  function estatisticas(e) {
+    const sess = sessoesDe(e);
+    const todas = sess.flatMap((s) => s.series);
+    if (!todas.length) return null;
+    const melhor1RMSessao = (s) => Math.max(0, ...s.series.map(umRM));
+    let recorde = 0; let dataRecorde = null;
+    sess.forEach((s) => { const v = melhor1RMSessao(s); if (v > recorde) { recorde = v; dataRecorde = s.data; } });
+    const melhorSerie = todas.reduce((a, b) => (umRM(b) > umRM(a) || (umRM(b) === umRM(a) && b.kg > a.kg) ? b : a));
+    const vols = sess.map((s) => volume(s.series));
+    return {
+      pesoMax: Math.max(...todas.map((s) => s.kg)),
+      recorde, dataRecorde,
+      evolucao: sess.length > 1 ? { de: melhor1RMSessao(sess[0]), para: melhor1RMSessao(sess[sess.length - 1]) } : null,
+      melhorSerie,
+      melhorVolume: Math.max(...vols),
+      volumeTotal: vols.reduce((a, b) => a + b, 0),
+      ultima: sess[sess.length - 1].data,
+      sessoes: sess.length,
+      series: todas.length,
+      reps: todas.reduce((t, s) => t + s.reps, 0),
+    };
+  }
+
+  function cartao(linhas) {
+    const c = document.createElement('div');
+    c.className = 'cartao';
+    linhas.forEach(([rot, val, sub]) => {
+      const l = document.createElement('div');
+      l.className = 'linha-stat';
+      const a = document.createElement('span'); a.textContent = rot;
+      const b = document.createElement('b'); b.textContent = val;
+      if (sub) { const sm = document.createElement('small'); sm.textContent = sub; b.appendChild(sm); }
+      l.append(a, b);
+      c.appendChild(l);
+    });
+    return c;
+  }
+  const titulo3 = (txt) => { const h = document.createElement('h3'); h.textContent = txt; return h; };
+
+  function renderDetalhes() {
+    const e = acharExercicio(detId);
+    if (!e) { fecharDetalhes(); return; }
+    $('dNome').textContent = e.nome;
+    $('dSub').textContent = descricao(e);
+    document.querySelectorAll('.det-abas button').forEach((b) => b.classList.toggle('ativa', b.dataset.aba === detAba));
+    const corpo = $('dCorpo');
+    corpo.innerHTML = '';
+    corpo.scrollTop = 0;
+
+    if (detAba === 'como') {
+      const m = document.createElement('div');
+      m.className = 'midia';
+      corpo.appendChild(m);
+      renderMidia(m, e);
+      corpo.appendChild(titulo3('Como fazer'));
+      corpo.appendChild(cartao([
+        ['Séries × repetições', `${e.series} × ${e.reps || '-'}`],
+        ['Descanso', e.descanso ? `${e.descanso}s` : '—'],
+        ['Carga planejada', e.carga !== '' ? `${fmtKg(e.carga)} kg` : '—'],
+      ]));
+      if (e.obs) {
+        corpo.appendChild(titulo3('Observações'));
+        const p = document.createElement('p'); p.className = 'como-texto'; p.textContent = e.obs;
+        corpo.appendChild(p);
+      }
+      return;
+    }
+
+    const st = estatisticas(e);
+    if (!st) {
+      const v = document.createElement('p');
+      v.className = 'vazio-det';
+      v.textContent = 'Ainda não há registros. Faça o exercício na tela de treino e toque em “Concluir treino” — o resumo e o histórico aparecem aqui.';
+      corpo.appendChild(v);
+      return;
+    }
+
+    if (detAba === 'resumo') {
+      let evo = ['Evolução', '—', 'precisa de 2 treinos ou mais'];
+      if (st.evolucao) {
+        const d = st.evolucao.para - st.evolucao.de;
+        const pct = st.evolucao.de ? Math.round((d / st.evolucao.de) * 100) : 0;
+        evo = ['Evolução', `${d >= 0 ? '+' : '−'}${fmtKg(Math.abs(d))} kg (${pct >= 0 ? '+' : ''}${pct}%)`, '1RM do primeiro ao último treino'];
+      }
+      corpo.append(
+        titulo3('Recordes pessoais'),
+        cartao([
+          ['Peso máximo', `${fmtKg(st.pesoMax)} kg`],
+          ['Melhor 1RM (estimado)', st.recorde ? `${fmtKg(st.recorde)} kg` : '—'],
+          evo,
+          ['Último recorde', st.dataRecorde ? haQuanto(st.dataRecorde) : '—'],
+        ]),
+        titulo3('Força'),
+        cartao([['Melhor série', `${fmtKg(st.melhorSerie.kg)} kg × ${st.melhorSerie.reps} reps`]]),
+        titulo3('Volume'),
+        cartao([
+          ['Melhor volume num treino', `${fmtKg(st.melhorVolume)} kg`],
+          ['Volume total', `${fmtKg(st.volumeTotal)} kg`],
+        ]),
+        titulo3('Frequência'),
+        cartao([
+          ['Última execução', haQuanto(st.ultima)],
+          ['Total de treinos', String(st.sessoes)],
+          ['Total de séries', String(st.series)],
+          ['Total de repetições', String(st.reps)],
+        ]),
+        titulo3('Evolução — maior peso por treino'),
+        grafico(sessoesDe(e)),
+      );
+      return;
+    }
+
+    // Histórico
+    sessoesDe(e).slice().reverse().forEach((s) => {
+      const box = document.createElement('div');
+      box.className = 'sessao';
+      const topo = document.createElement('div');
+      topo.className = 'sessao-topo';
+      const b = document.createElement('b');
+      b.textContent = `${dataCurta(s.data)} · ${haQuanto(s.data)}`;
+      const del = document.createElement('button');
+      del.className = 'link-perigo';
+      del.textContent = 'Apagar';
+      del.onclick = () => {
+        if (!confirm('Apagar este registro do histórico?')) return;
+        const l = estado.log[e.id];
+        l.splice(l.indexOf(s), 1);
+        salvar(); renderDetalhes(); renderTreino();
+      };
+      topo.append(b, del);
+      const ol = document.createElement('ol');
+      s.series.forEach((x) => { const li = document.createElement('li'); li.textContent = `${fmtKg(x.kg)} kg × ${x.reps} reps`; ol.appendChild(li); });
+      const v = document.createElement('div');
+      v.className = 'vol';
+      v.textContent = `Volume: ${fmtKg(volume(s.series))} kg`;
+      box.append(topo, ol, v);
+      corpo.appendChild(box);
+    });
+  }
+
+  // Gráfico de linha simples (maior peso de cada treino), com toque para ver o valor.
+  function grafico(sess) {
+    const wrap = document.createElement('div');
+    wrap.className = 'grafico';
+    const pts = sess.map((s) => ({ data: s.data, v: Math.max(0, ...s.series.map((x) => x.kg)) }));
+    if (pts.length < 2) {
+      const p = document.createElement('p');
+      p.className = 'legenda-graf';
+      p.textContent = 'O gráfico aparece a partir do 2º treino com este exercício.';
+      wrap.appendChild(p);
+      return wrap;
+    }
+    const W = 340, H = 170, ml = 34, mr = 12, mt = 26, mb = 24;
+    const max = Math.max(...pts.map((p) => p.v));
+    const min = Math.min(...pts.map((p) => p.v));
+    const lo = Math.max(0, Math.floor((min - (max - min) * 0.2 - 1)));
+    const hi = Math.ceil(max + (max - min) * 0.1 + 1);
+    const x = (i) => ml + (i * (W - ml - mr)) / (pts.length - 1);
+    const y = (v) => mt + (1 - (v - lo) / (hi - lo)) * (H - mt - mb);
+    const ns = 'http://www.w3.org/2000/svg';
+    const el = (tag, attrs) => { const n = document.createElementNS(ns, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; };
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Maior peso por treino' });
+    [lo, (lo + hi) / 2, hi].forEach((v) => {
+      svg.appendChild(el('line', { x1: ml, x2: W - mr, y1: y(v), y2: y(v), stroke: '#2a313b', 'stroke-width': 1 }));
+      const t = el('text', { x: ml - 6, y: y(v) + 4, 'text-anchor': 'end', fill: '#8b95a3', 'font-size': 10 });
+      t.textContent = fmtKg(Math.round(v));
+      svg.appendChild(t);
+    });
+    [0, pts.length - 1].forEach((i) => {
+      const t = el('text', { x: x(i), y: H - 6, 'text-anchor': i ? 'end' : 'start', fill: '#8b95a3', 'font-size': 10 });
+      t.textContent = new Date(pts[i].data).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      svg.appendChild(t);
+    });
+    svg.appendChild(el('polyline', {
+      points: pts.map((p, i) => `${x(i)},${y(p.v)}`).join(' '),
+      fill: 'none', stroke: COR_GRAFICO, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+    }));
+    const guia = el('line', { y1: mt - 6, y2: H - mb, stroke: '#8b95a3', 'stroke-width': 1, visibility: 'hidden' });
+    svg.appendChild(guia);
+    const pontos = pts.map((p, i) => {
+      const c = el('circle', { cx: x(i), cy: y(p.v), r: 4, fill: COR_GRAFICO, stroke: '#111418', 'stroke-width': 2 });
+      svg.appendChild(c);
+      return c;
+    });
+    // rótulo direto só no último ponto
+    const ult = el('text', { x: x(pts.length - 1), y: y(pts[pts.length - 1].v) - 10, 'text-anchor': 'end', fill: '#e9edf2', 'font-size': 11, 'font-weight': 700 });
+    ult.textContent = `${fmtKg(pts[pts.length - 1].v)} kg`;
+    svg.appendChild(ult);
+
+    const tip = document.createElement('div');
+    tip.className = 'tip';
+    tip.hidden = true;
+    const mostrar = (ev) => {
+      const r = svg.getBoundingClientRect();
+      const px = ((ev.clientX - r.left) / r.width) * W;
+      let i = Math.round(((px - ml) / (W - ml - mr)) * (pts.length - 1));
+      i = Math.max(0, Math.min(pts.length - 1, i));
+      guia.setAttribute('x1', x(i)); guia.setAttribute('x2', x(i)); guia.setAttribute('visibility', 'visible');
+      pontos.forEach((c, k) => c.setAttribute('r', k === i ? 6 : 4));
+      tip.hidden = false;
+      tip.innerHTML = '';
+      const b = document.createElement('b'); b.textContent = `${fmtKg(pts[i].v)} kg`;
+      tip.append(b, ` · ${dataCurta(pts[i].data)}`);
+      tip.style.left = `${Math.max(15, Math.min(85, (x(i) / W) * 100))}%`;
+    };
+    const esconder = () => { tip.hidden = true; guia.setAttribute('visibility', 'hidden'); pontos.forEach((c) => c.setAttribute('r', 4)); };
+    svg.addEventListener('pointermove', mostrar);
+    svg.addEventListener('pointerdown', mostrar);
+    svg.addEventListener('pointerleave', esconder);
+    wrap.append(svg, tip);
+    const leg = document.createElement('p');
+    leg.className = 'legenda-graf';
+    leg.textContent = 'Toque no gráfico para ver o valor de cada treino. A lista completa está na aba Histórico.';
+    wrap.appendChild(leg);
+    return wrap;
+  }
 
   // --- aviso de fim do descanso: bip + vibração + tela piscando ---
   let audioCtx = null;
@@ -621,7 +1013,6 @@
     } catch (_) { /* sem áudio */ }
   }
 
-  // Mantém a tela acesa enquanto treina (quando o navegador permite).
   async function manterTelaLigada() {
     try {
       if ('wakeLock' in navigator && modoAberto()) wakeLock = await navigator.wakeLock.request('screen');
