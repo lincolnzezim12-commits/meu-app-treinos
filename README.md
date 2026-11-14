@@ -22,6 +22,9 @@ Funciona no celular e no computador, offline, e salva tudo no próprio aparelho.
   ("Exercício 1 de 6 ▾"). O descanso abre em tela própria com anel de contagem, próximo
   exercício, ±15 s, **Pular descanso**, pausar e reiniciar. Resumo final com duração, séries e
   volume.
+- **Fim do treino**: card premium do treino (V dourado, duração, séries, volume, exercícios e
+  semana) em imagem 1080×1350 para **Compartilhar / salvar imagem** (no iPhone: Salvar Imagem,
+  Instagram…). Se algum exercício/série foi pulado, ao finalizar o app pergunta se quer fazer agora.
 - **Variações**: "Agachamento ou hack" e "Barra fixa ou puxada alta" (também crucifixo inverso
   halteres/máquina e tríceps unilateral polia/halter), cada uma com seu vídeo e histórico.
 - **Carga clara**: total, por halter, por lado ou carga adicional (peso corporal).

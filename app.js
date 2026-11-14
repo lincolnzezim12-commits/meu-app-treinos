@@ -846,6 +846,7 @@
     const planejadas = t.exercicios.reduce((a, e) => a + e.series, 0);
     const duracao = s ? Math.round(segundosDeTreino(s)) : 0;
     const anterior = estado.historico.find((x) => x.treino === ti && doPrograma(x)) || null;
+    ultimoCartao = dadosDoCartao(ti, s);
     estado.historico.unshift({
       programa: estado.programa ? estado.programa.id : undefined,
       treino: ti, nome: t.nome, data: agora,
@@ -1087,12 +1088,21 @@
       return;
     }
     if (fase === 'completo') {
-      const vol = t.exercicios.reduce((a, x) => a + volume(x.feitas), 0);
-      const k = $('fimKpis'); k.innerHTML = '';
-      k.append(
-        h('div', {}, h('b', { text: fmtRelogio(segundosDeTreino(s)) }), h('span', { text: 'duração' })),
-        h('div', {}, h('b', { text: `${t.exercicios.reduce((a, x) => a + x.feitas.length, 0)}/${plan}` }), h('span', { text: 'séries' })),
-        h('div', {}, h('b', { text: fmtKg(Math.round(vol)) }), h('span', { text: 'kg de volume' })));
+      const dados = dadosDoCartao(estado.atual, s);
+      const chave = JSON.stringify(dados);
+      if (cartaoChave !== chave) { // gera a imagem só quando algo muda
+        cartaoChave = chave;
+        mostrarCartao($('fimCartao'), dados);
+      }
+      const pul = exerciciosPulados(t);
+      const av = $('fimPulados');
+      av.hidden = !pul.length;
+      av.innerHTML = '';
+      if (pul.length) {
+        av.append(h('b', { text: `Você pulou ${pul.length} exercício${pul.length > 1 ? 's' : ''}` }),
+          h('p', { class: 'nota-peq', text: pul.map(({ e }) => e.nome).join(' · ') }),
+          h('button', { class: 'btn primario pequeno', text: 'Fazer agora', onclick: fazerPulados }));
+      }
       $('mAcao').textContent = '✓ Finalizar e salvar treino';
       atualizarTempos();
       return;
@@ -1207,8 +1217,185 @@
     destravarAudio();
     if (s.pausadoEm) retomarTreino(s);
     if (s.fase === 'serie') terminarSerie();
-    else if (s.fase === 'completo') concluirTreino();
+    else if (s.fase === 'completo') {
+      const pul = exerciciosPulados(treinoAtual());
+      if (!pul.length) { concluirTreino(); return; }
+      const ul = $('dpLista'); ul.innerHTML = '';
+      pul.forEach(({ e, n }) => ul.append(h('li', {}, h('span', { text: e.nome }),
+        h('span', { text: n >= e.series ? 'pulado' : `${n} de ${e.series} séries puladas` }))));
+      $('dlgPulados').showModal();
+    }
   };
+
+  // ---------- Exercícios pulados: oferecer fazer antes de finalizar ----------
+  function exerciciosPulados(t) {
+    return t.exercicios.map((e, i) => ({ e, i, n: e.puladas || 0 })).filter((x) => x.n > 0);
+  }
+  function fazerPulados() {
+    const t = treinoAtual();
+    const s = sessaoDoAtual();
+    const pul = exerciciosPulados(t);
+    if (!pul.length || !s) return;
+    pul.forEach(({ e }) => { e.puladas = 0; });
+    s.adiados = [];
+    delete s.fimTreino;
+    irExercicio(pul[0].i);
+    if ($('dlgPulados').open) $('dlgPulados').close();
+    salvar(); renderModo();
+  }
+  $('dpFazer').onclick = fazerPulados;
+  $('dpFinalizar').onclick = () => { $('dlgPulados').close(); concluirTreino(); };
+
+  // ---------- Card do treino (imagem para salvar/compartilhar) ----------
+  let cartaoChave = null;
+  let ultimoCartao = null; // dados do último treino finalizado (para o resumo)
+
+  function dadosDoCartao(ti, s) {
+    const t = estado.treinos[ti];
+    const p = estado.perfil || (PROGRAMA && PROGRAMA.perfil);
+    const semana = feitosEstaSemana();
+    const ini = inicioSemana(hoje());
+    const diasTreino = new Set(semana.map((x) => diaDoRegistro(x)));
+    diasTreino.add(hoje());
+    const treinosSem = new Set(semana.map((x) => x.treino)); treinosSem.add(ti);
+    return {
+      ti, nome: t.nome, data: hoje(),
+      duracao: s ? Math.round(segundosDeTreino(s)) : 0,
+      series: t.exercicios.reduce((a, e) => a + e.feitas.length, 0),
+      planejadas: t.exercicios.reduce((a, e) => a + e.series, 0),
+      volume: Math.round(t.exercicios.reduce((a, e) => a + volume(e.feitas), 0)),
+      exercicios: t.exercicios.map((e) => {
+        const top = e.feitas.length ? e.feitas.reduce((a, b) => (b.kg > a.kg ? b : a)) : null;
+        return { nome: e.nome, feitas: e.feitas.length, series: e.series, top: top ? { kg: top.kg, reps: top.reps } : null, suf: SUFIXO_CARGA[tipoCargaDe(e)] };
+      }),
+      semana: Array.from({ length: 7 }, (_, i) => diasTreino.has(somaDias(ini, i))),
+      treinosSemana: treinosSem.size,
+      dia: p ? Math.max(0, Math.min(90, difDias(p.inicio, hoje()))) : null,
+    };
+  }
+
+  function desenharCartao(d) {
+    const W = 1080, H = 1350;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d');
+    const F = (peso, tam) => `${peso} ${tam}px -apple-system, "SF Pro Display", system-ui, "Segoe UI", Roboto, sans-serif`;
+    const ouro = (y0, y1) => { const g = x.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, '#f6e3a1'); g.addColorStop(0.5, '#d9b546'); g.addColorStop(1, '#9c7a22'); return g; };
+    const cortar = (txt, max) => { if (x.measureText(txt).width <= max) return txt; while (txt.length && x.measureText(txt + '…').width > max) txt = txt.slice(0, -1); return txt + '…'; };
+    const caixa = (bx, by, bw, bh, r) => { x.beginPath(); x.roundRect ? x.roundRect(bx, by, bw, bh, r) : x.rect(bx, by, bw, bh); };
+
+    // Fundo
+    const bg = x.createRadialGradient(W * 0.5, H * 0.22, 60, W * 0.5, H * 0.4, H * 0.9);
+    bg.addColorStop(0, '#221d10'); bg.addColorStop(0.55, '#0c0b09'); bg.addColorStop(1, '#050506');
+    x.fillStyle = bg; x.fillRect(0, 0, W, H);
+    // V gigante de marca d'água
+    x.save(); x.globalAlpha = 0.07; x.fillStyle = '#d4af37';
+    x.beginPath(); x.moveTo(140, 80); x.lineTo(390, 80); x.lineTo(540, 560); x.lineTo(690, 80); x.lineTo(940, 80); x.lineTo(640, 960); x.lineTo(440, 960); x.closePath(); x.fill();
+    x.restore();
+    // Moldura dourada fina
+    x.strokeStyle = 'rgba(212,175,55,.35)'; x.lineWidth = 2; caixa(36, 36, W - 72, H - 72, 36); x.stroke();
+
+    // Cabeçalho
+    const vLogo = (cx, cy, s) => {
+      x.fillStyle = ouro(cy - s, cy + s);
+      x.beginPath(); x.moveTo(cx - s, cy - s * .8); x.lineTo(cx - s * .42, cy - s * .8); x.lineTo(cx, cy + s * .5); x.lineTo(cx, cy + s); x.lineTo(cx - s * .24, cy + s); x.closePath(); x.fill();
+      x.fillStyle = '#8a6a1c';
+      x.beginPath(); x.moveTo(cx + s, cy - s * .8); x.lineTo(cx + s * .42, cy - s * .8); x.lineTo(cx, cy + s * .5); x.lineTo(cx, cy + s); x.lineTo(cx + s * .24, cy + s); x.closePath(); x.fill();
+    };
+    vLogo(122, 128, 34);
+    x.textBaseline = 'alphabetic';
+    x.fillStyle = '#d4af37'; x.font = F(800, 30); x.letterSpacing = '6px';
+    x.fillText('PROJETO V 4.0', 180, 124);
+    x.fillStyle = '#9aa1ab'; x.font = F(500, 24); x.letterSpacing = '0px';
+    x.fillText(d.dia != null ? `Dia ${d.dia} de 90 · hipertrofia e definição` : 'Hipertrofia e definição', 180, 160);
+    x.textAlign = 'right'; x.fillStyle = '#c9c9c4'; x.font = F(600, 26);
+    const dt = diaLocal(d.data);
+    x.fillText(dt.toLocaleDateString('pt-BR', { weekday: 'long' }), W - 90, 124);
+    x.fillStyle = '#9aa1ab'; x.font = F(500, 24);
+    x.fillText(dt.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }), W - 90, 160);
+    x.textAlign = 'left';
+
+    // Título
+    x.fillStyle = '#3ccf7a'; x.font = F(800, 26); x.letterSpacing = '5px';
+    x.fillText('✓ TREINO CONCLUÍDO', 90, 268);
+    x.letterSpacing = '0px';
+    x.fillStyle = ouro(290, 400); x.font = F(900, 118);
+    x.fillText(`TREINO ${d.ti + 1}`, 84, 390);
+    x.fillStyle = '#f3f3f1'; x.font = F(700, 52);
+    x.fillText(cortar(d.nome || '', W - 180), 90, 462);
+
+    // Números
+    const kpis = [['DURAÇÃO', d.duracao ? fmtRelogio(d.duracao) : '—'], ['SÉRIES', `${d.series}/${d.planejadas}`], ['VOLUME', d.volume ? `${fmtKg(d.volume)} kg` : '—']];
+    const kw = (W - 180 - 40) / 3;
+    kpis.forEach(([rot, val], i) => {
+      const kx = 90 + i * (kw + 20), ky = 512;
+      x.fillStyle = 'rgba(255,255,255,.04)'; caixa(kx, ky, kw, 150, 26); x.fill();
+      x.strokeStyle = 'rgba(212,175,55,.35)'; x.lineWidth = 2; caixa(kx, ky, kw, 150, 26); x.stroke();
+      x.fillStyle = '#9aa1ab'; x.font = F(700, 22); x.letterSpacing = '3px'; x.fillText(rot, kx + 28, ky + 50);
+      x.letterSpacing = '0px'; x.fillStyle = '#f3f3f1'; x.font = F(800, 50); x.fillText(cortar(val, kw - 50), kx + 28, ky + 118);
+    });
+
+    // Exercícios
+    let y = 728;
+    x.fillStyle = '#d4af37'; x.font = F(800, 22); x.letterSpacing = '4px'; x.fillText('EXERCÍCIOS', 90, y); x.letterSpacing = '0px';
+    y += 22;
+    const lista = d.exercicios.slice(0, 7);
+    const linhaH = Math.min(62, Math.floor(330 / Math.max(lista.length, 1)));
+    lista.forEach((e) => {
+      y += linhaH;
+      x.strokeStyle = 'rgba(255,255,255,.07)'; x.lineWidth = 2; x.beginPath(); x.moveTo(90, y + 18); x.lineTo(W - 90, y + 18); x.stroke();
+      const ok = e.feitas >= e.series;
+      x.fillStyle = e.feitas ? (ok ? '#3ccf7a' : '#d4af37') : '#5b616b'; x.font = F(800, 28);
+      x.fillText(e.feitas ? '✓' : '–', 90, y);
+      x.fillStyle = e.feitas ? '#f3f3f1' : '#7b818a'; x.font = F(600, 32);
+      x.fillText(cortar(e.nome, 560), 136, y);
+      x.textAlign = 'right'; x.font = F(600, 28);
+      x.fillStyle = e.feitas ? '#d4af37' : '#5b616b';
+      x.fillText(e.top ? `${e.feitas}× · ${fmtKg(e.top.kg)} ${e.suf.replace('kg', 'kg')}` : 'pulado', W - 90, y);
+      x.textAlign = 'left';
+    });
+
+    // Semana
+    const sy = H - 196;
+    x.fillStyle = '#9aa1ab'; x.font = F(700, 22); x.letterSpacing = '3px';
+    x.fillText(`SEMANA · ${d.treinosSemana}/5 TREINOS`, 90, sy); x.letterSpacing = '0px';
+    const dias = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+    d.semana.forEach((on, i) => {
+      const cx = 112 + i * 76, cy = sy + 62;
+      x.beginPath(); x.arc(cx, cy, 26, 0, Math.PI * 2);
+      if (on) { x.fillStyle = '#d4af37'; x.fill(); } else { x.strokeStyle = '#3a3f48'; x.lineWidth = 3; x.stroke(); }
+      x.fillStyle = on ? '#15120a' : '#7b818a'; x.font = F(800, 22); x.textAlign = 'center'; x.fillText(on ? '✓' : dias[i], cx, cy + 8); x.textAlign = 'left';
+    });
+    x.textAlign = 'right'; x.fillStyle = 'rgba(212,175,55,.8)'; x.font = F(800, 26); x.letterSpacing = '4px';
+    x.fillText('SHAPE EM V', W - 90, sy + 72); x.letterSpacing = '0px'; x.textAlign = 'left';
+    return c;
+  }
+
+  const canvasParaBlob = (c) => new Promise((ok) => c.toBlob((b) => ok(b), 'image/png'));
+  let urlCartao = null;
+  async function mostrarCartao(img, dados) {
+    const blob = await canvasParaBlob(desenharCartao(dados));
+    if (!blob) return;
+    if (urlCartao) URL.revokeObjectURL(urlCartao);
+    urlCartao = URL.createObjectURL(blob);
+    img.src = urlCartao;
+  }
+
+  async function compartilharCartao(dados) {
+    const blob = await canvasParaBlob(desenharCartao(dados));
+    if (!blob) return;
+    const nome = `projeto-v-treino-${dados.ti + 1}-${dados.data}.png`;
+    const arq = new File([blob], nome, { type: 'image/png' });
+    // iPhone: menu Compartilhar → "Salvar Imagem", Instagram, WhatsApp...
+    if (navigator.canShare && navigator.canShare({ files: [arq] })) {
+      try { await navigator.share({ files: [arq], title: `Projeto V · Treino ${dados.ti + 1}` }); return; }
+      catch (err) { if (err && err.name === 'AbortError') return; }
+    }
+    const a = h('a', { href: URL.createObjectURL(arq), download: nome });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  $('fimCompartilhar').onclick = () => { const s = sessaoDoAtual(); if (s) compartilharCartao(dadosDoCartao(estado.atual, s)); };
+  $('rsCompartilhar').onclick = () => { if (ultimoCartao) compartilharCartao(ultimoCartao); };
   $('mPular').onclick = () => { fimDoDescanso(); salvar(); renderModo(); };
   const ajustarDescanso = (ms) => {
     const s = sessaoDoAtual();

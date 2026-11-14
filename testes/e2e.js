@@ -318,6 +318,33 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   await p.click('.menu [data-ir=vInicio]');
   ok(`semana: dias verdes com T1/T2, tabela com duração e total (1h55), check verde nos treinos feitos, semana passada separada`);
 
+  // 9c) Fim do treino: card para compartilhar + pergunta sobre exercícios pulados
+  await p.locator('.card-treino').nth(4).locator('text=INICIAR TREINO').click();
+  assert.equal(await p.textContent('#mNome'), 'Barra fixa ou puxada alta');
+  await p.fill('#inKg', '10'); await p.click('#mAcao'); await p.click('#mPular'); // 1 série feita
+  for (let k = 0; k < 5; k++) await p.click('#mPularEx');
+  assert.ok(!(await p.isHidden('#telaFim')));
+  await p.waitForFunction(() => document.getElementById('fimCartao').naturalWidth > 0);
+  assert.deepEqual(await p.evaluate(() => [fimCartao.naturalWidth, fimCartao.naturalHeight]), [1080, 1350]);
+  assert.ok(!(await p.isHidden('#fimPulados')));
+  await shot('08-fim-treino');
+  await p.click('#mAcao'); // finalizar → pergunta
+  await p.waitForSelector('#dlgPulados[open]');
+  assert.equal(await p.locator('#dpLista li').count(), 5);
+  await p.click('#dpFazer');
+  assert.equal(await p.textContent('#mNome'), 'Barra fixa ou puxada alta');
+  assert.equal(await p.textContent('#mRotulo'), 'Série 2 de 3');
+  ok('ao finalizar com exercícios pulados aparece “Você pulou… Fazer agora?” e volta para eles');
+  for (let k = 0; k < 5; k++) await p.click('#mPularEx');
+  await p.click('#mAcao'); await p.waitForSelector('#dlgPulados[open]');
+  await p.click('#dpFinalizar');
+  await p.waitForSelector('#dlgResumo[open]');
+  const [img] = await Promise.all([p.waitForEvent('download'), p.click('#rsCompartilhar')]);
+  const png = require('fs').readFileSync(await img.path());
+  assert.equal(png.toString('ascii', 1, 4), 'PNG'); assert.equal(png.readUInt32BE(16), 1080); assert.equal(png.readUInt32BE(20), 1350);
+  await p.click('#rsOk');
+  ok('“Finalizar mesmo assim” salva; card do treino vira imagem PNG 1080×1350 para salvar/compartilhar');
+
   // 10) Offline: com o service worker ativo, o app abre sem internet
   await p.evaluate(() => navigator.serviceWorker.ready);
   await p.reload(); // garante que a página está controlada pelo SW

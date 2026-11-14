@@ -284,7 +284,9 @@
     <div id="telaFim" class="mt-fim" hidden>
       <p class="sobretitulo">Treino completo</p>
       <h2>💪 Mandou bem!</h2>
-      <div id="fimKpis" class="kpis"></div>
+      <div class="cartao-preview"><img id="fimCartao" alt="Card do treino concluído"></div>
+      <button id="fimCompartilhar" class="btn leve largo">⤴︎ Compartilhar / salvar imagem</button>
+      <div id="fimPulados" class="aviso-card" hidden></div>
       <p class="nota-peq">Toque em finalizar para salvar no histórico.</p>
     </div>
 
@@ -297,6 +299,14 @@
       </div>
     </footer>
   </section>
+
+  <dialog id="dlgPulados">
+    <h2>Você pulou alguns exercícios</h2>
+    <p class="nota-peq">Quer fazer agora antes de encerrar o dia de treino?</p>
+    <ul id="dpLista" class="rs-lista"></ul>
+    <button id="dpFazer" class="btn primario enorme">Fazer agora</button>
+    <button id="dpFinalizar" class="btn leve largo">Finalizar mesmo assim</button>
+  </dialog>
 
   <dialog id="dlgExercicios">
     <h2 id="deTitulo">Exercícios</h2>
@@ -390,6 +400,7 @@
       <div id="rsKpis" class="kpis"></div>
       <p id="rsComp" class="rs-comp"></p>
       <ul id="rsLista" class="rs-lista"></ul>
+      <button id="rsCompartilhar" class="btn leve largo">⤴︎ Compartilhar / salvar imagem</button>
       <button id="rsOk" class="btn primario enorme">OK</button>
     </div>
   </dialog>

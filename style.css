@@ -655,3 +655,16 @@ button.ponto { cursor: pointer; }
   .mt-acoes { margin-top: 8px; gap: 8px; }
   .mt-acoes .btn { padding: 9px 4px; font-size: .76rem; }
 }
+
+/* Fim do treino com card para compartilhar */
+.mt-fim { justify-content: flex-start; overflow-y: auto; padding-top: 8px; padding-bottom: 12px; }
+.mt-fim h2 { margin-bottom: 12px; }
+.cartao-preview { display: flex; justify-content: center; }
+.cartao-preview img {
+  width: auto; max-width: 100%; max-height: 48vh; aspect-ratio: 4 / 5; border-radius: 18px;
+  box-shadow: 0 18px 40px rgba(0,0,0,.6), 0 0 0 1px rgba(212,175,55,.25); background: #0c0b09;
+}
+.mt-fim .largo { margin-top: 14px; }
+.mt-fim .aviso-card { text-align: left; }
+#dlgPulados .enorme { margin-top: 6px; }
+#dlgResumo .largo { margin: 0 0 10px; }
