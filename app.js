@@ -1,23 +1,48 @@
-// Meus Treinos — dados salvos no próprio aparelho (localStorage).
+// Projeto V 4.0 — app de treino. Dados salvos no próprio aparelho:
+// localStorage (treinos, cargas, histórico, avaliações) e IndexedDB (fotos de evolução).
 (() => {
   'use strict';
 
-  const CHAVE = 'meus-treinos-v1';
+  const CHAVE = 'meus-treinos-v1'; // mesma chave das versões anteriores: nada se perde
   const TOTAL_TREINOS = 5;
-  const COR_GRAFICO = '#e8650c';
+  const COR_GRAFICO = '#a8862a';
+  const PROGRAMA = window.PROJETO_V;
+  const CATALOGO = window.CATALOGO || {};
+  const MARCOS = [0, 15, 30, 60, 90];
+  const MEDIDAS = [
+    ['peso', 'Peso', 'kg'], ['cintura', 'Cintura', 'cm'], ['peitoral', 'Peitoral', 'cm'],
+    ['braco', 'Braço', 'cm'], ['coxa', 'Coxa', 'cm'], ['gordura', '% gordura', '%'],
+  ];
 
   const $ = (id) => document.getElementById(id);
+  // Cria elementos sem innerHTML (textos de usuário sempre como texto).
+  function h(tag, props, ...filhos) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (v == null || v === false) continue;
+      if (k === 'class') n.className = v;
+      else if (k === 'text') n.textContent = v;
+      else if (k.startsWith('on')) n[k] = v;
+      else if (v === true) n.setAttribute(k, '');
+      else n.setAttribute(k, v);
+    }
+    filhos.flat().forEach((f) => { if (f != null && f !== false) n.append(f instanceof Node ? f : String(f)); });
+    return n;
+  }
 
   // ---------- Estado ----------
-  // exercício: { id, nome, series, reps, carga, descanso, video, obs, feitas: [{reps, kg}] }
-  // log: { [idExercicio]: [{ data, treino, series: [{reps, kg}] }] }  ← histórico por exercício
   function estadoInicial() {
     return {
       atual: 0,
-      treinos: Array.from({ length: TOTAL_TREINOS }, () => ({ nome: '', exercicios: [] })),
-      historico: [],
-      log: {},
-      sessao: null,
+      treinos: Array.from({ length: TOTAL_TREINOS }, () => ({ nome: '', objetivo: '', exercicios: [] })),
+      historico: [],   // treinos concluídos
+      log: {},         // { idExercicio: [{ data, treino, variacao, series:[{reps,kg,t}], obs }] }
+      sessao: null,    // treino em andamento
+      programa: null,  // { id, instaladoEm }
+      perfil: null,    // { inicio, peso, altura, idade }
+      avaliacoes: [],  // evolução corporal
+      descansos: [],   // datas (AAAA-MM-DD) de dias de descanso
+      arquivo: [],     // fichas anteriores (antes do Projeto V), guardadas sem alteração
     };
   }
 
@@ -29,8 +54,13 @@
     return estadoInicial();
   }
 
-  const num = (v, padrao = 0) => (Number.isFinite(Number(v)) && v !== '' && v != null ? Number(v) : padrao);
-  const serie = (x) => ({ reps: Math.max(0, Math.round(num(x && x.reps))), kg: Math.max(0, num(x && x.kg)) });
+  const num = (v, padrao = 0) => (v !== '' && v != null && Number.isFinite(Number(v)) ? Number(v) : padrao);
+  const numOuVazio = (v) => (v === '' || v == null || !Number.isFinite(Number(v)) ? '' : Number(v));
+  const serie = (x) => {
+    const s = { reps: Math.max(0, Math.round(num(x && x.reps))), kg: Math.max(0, num(x && x.kg)) };
+    if (x && x.t) s.t = String(x.t);
+    return s;
+  };
 
   function normalizar(dados) {
     const base = estadoInicial();
@@ -39,20 +69,27 @@
       const t = dados.treinos[i];
       if (!t) continue;
       base.treinos[i].nome = String(t.nome || '');
+      base.treinos[i].objetivo = String(t.objetivo || '');
       base.treinos[i].exercicios = (Array.isArray(t.exercicios) ? t.exercicios : []).map((e) => {
         const ex = {
           id: e.id || novoId(),
+          cat: e.cat && CATALOGO[e.cat] ? e.cat : null,
+          variacao: e.variacao ? String(e.variacao) : null,
           nome: String(e.nome || ''),
           series: Math.max(1, num(e.series, 1)),
           reps: String(e.reps ?? ''),
-          carga: e.carga === '' || e.carga == null ? '' : num(e.carga),
+          carga: numOuVazio(e.carga),
           descanso: Math.max(0, num(e.descanso)),
+          descansoFaixa: e.descansoFaixa ? String(e.descansoFaixa) : '',
+          tipoCarga: ['total', 'halter', 'lado', 'corporal'].includes(e.tipoCarga) ? e.tipoCarga : null,
           video: String(e.video || ''),
           obs: String(e.obs || ''),
+          nota: String(e.nota || ''),
+          conferidos: Array.isArray(e.conferidos) ? e.conferidos.map(String) : [],
           feitas: [],
         };
         if (Array.isArray(e.feitas)) ex.feitas = e.feitas.map(serie);
-        else { // versões antigas: só contavam as séries
+        else { // versões antigas guardavam só a contagem
           const n = Number.isFinite(Number(e.seriesFeitas)) ? Number(e.seriesFeitas) : (e.feito ? ex.series : 0);
           for (let k = 0; k < Math.min(n, ex.series); k++) ex.feitas.push({ reps: metaReps(ex), kg: num(ex.carga) });
         }
@@ -60,94 +97,333 @@
         return ex;
       });
     }
-    base.historico = Array.isArray(dados.historico) ? dados.historico.slice(0, 200) : [];
+    base.historico = Array.isArray(dados.historico) ? dados.historico.filter((x) => x && x.data).slice(0, 500) : [];
     if (dados.log && typeof dados.log === 'object') {
       for (const [id, lista] of Object.entries(dados.log)) {
         if (!Array.isArray(lista)) continue;
         base.log[id] = lista
           .filter((s) => s && s.data && Array.isArray(s.series))
-          .map((s) => ({ data: String(s.data), treino: num(s.treino), series: s.series.map(serie) }));
+          .map((s) => ({
+            data: String(s.data), treino: num(s.treino),
+            variacao: s.variacao ? String(s.variacao) : undefined,
+            variacaoNome: s.variacaoNome ? String(s.variacaoNome) : undefined,
+            series: s.series.map(serie), obs: s.obs ? String(s.obs) : undefined,
+          }));
       }
     }
     const s = dados.sessao;
     if (s && Number.isInteger(s.treino) && base.treinos[s.treino]) base.sessao = s;
+    if (dados.programa && dados.programa.id) base.programa = { id: String(dados.programa.id), instaladoEm: String(dados.programa.instaladoEm || '') };
+    if (dados.perfil && dados.perfil.inicio) {
+      base.perfil = {
+        inicio: String(dados.perfil.inicio), peso: numOuVazio(dados.perfil.peso),
+        altura: numOuVazio(dados.perfil.altura), idade: numOuVazio(dados.perfil.idade),
+      };
+    }
+    if (Array.isArray(dados.avaliacoes)) {
+      base.avaliacoes = dados.avaliacoes.filter((a) => a && a.data).map((a) => {
+        const r = { id: String(a.id || novoId()), data: String(a.data), marco: MARCOS.includes(a.marco) ? a.marco : null, obs: String(a.obs || ''), fotos: {} };
+        MEDIDAS.forEach(([k]) => { r[k] = numOuVazio(a[k]); });
+        if (a.fotos && typeof a.fotos === 'object') for (const p of ['frente', 'costas', 'perfil']) if (a.fotos[p]) r.fotos[p] = String(a.fotos[p]);
+        return r;
+      });
+    }
+    if (Array.isArray(dados.descansos)) base.descansos = [...new Set(dados.descansos.map(String))].sort();
+    if (Array.isArray(dados.arquivo)) base.arquivo = dados.arquivo;
     return base;
   }
 
   let estado = carregar();
 
   function salvar() {
-    try { localStorage.setItem(CHAVE, JSON.stringify(estado)); } catch (_) { /* indisponível */ }
+    try { localStorage.setItem(CHAVE, JSON.stringify(estado)); }
+    catch (_) { alert('Não foi possível salvar: o armazenamento do navegador está cheio ou bloqueado. Exporte um backup.'); }
   }
 
   function novoId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
+  // ---------- Instalação da ficha do Projeto V 4.0 ----------
+  // Feita uma única vez. Não apaga nada: a ficha antiga vai para "arquivo" e o
+  // histórico de cargas continua ligado ao exercício quando o nome coincide.
+  const normNome = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+
+  function instalarProjetoV() {
+    if (!PROGRAMA || (estado.programa && estado.programa.id === PROGRAMA.id)) return false;
+    const antigos = estado.treinos.flatMap((t) => t.exercicios);
+    if (antigos.length) {
+      estado.arquivo.push({ data: new Date().toISOString(), treinos: JSON.parse(JSON.stringify(estado.treinos)) });
+    }
+    const porNome = new Map();
+    antigos.forEach((e) => { if (!porNome.has(normNome(e.nome))) porNome.set(normNome(e.nome), e.id); });
+    const usados = new Set();
+
+    estado.treinos = PROGRAMA.treinos.map((t) => ({
+      nome: t.nome,
+      objetivo: t.objetivo,
+      exercicios: t.exercicios.map(([cat, series, reps]) => {
+        const c = CATALOGO[cat];
+        const nomes = [c.nome, ...c.variacoes.map((v) => v.nome)].map(normNome);
+        let id = null;
+        for (const n of nomes) { const achado = porNome.get(n); if (achado && !usados.has(achado)) { id = achado; break; } }
+        if (!id) id = `pv-${cat}`;
+        usados.add(id);
+        return {
+          id, cat, variacao: c.variacoes[0].id, nome: c.nome, series, reps,
+          carga: '', descanso: c.descanso, descansoFaixa: c.descansoFaixa, tipoCarga: null,
+          video: '', obs: '', nota: '', feitas: [],
+        };
+      }),
+    }));
+    estado.sessao = null;
+    estado.atual = 0;
+    estado.programa = { id: PROGRAMA.id, instaladoEm: new Date().toISOString() };
+    if (!estado.perfil) estado.perfil = { ...PROGRAMA.perfil };
+    if (!estado.avaliacoes.some((a) => a.marco === 0)) {
+      // Dia 0 com os dados informados (só peso; medidas ainda não informadas ficam vazias)
+      const a = { id: novoId(), data: estado.perfil.inicio, marco: 0, obs: '', fotos: {} };
+      MEDIDAS.forEach(([k]) => { a[k] = ''; });
+      a.peso = num(estado.perfil.peso, '') || '';
+      estado.avaliacoes.push(a);
+    }
+    salvar();
+    return true;
+  }
+
   // ---------- Utilidades ----------
   const treinoAtual = () => estado.treinos[estado.atual];
   const rotulo = (i) => `Treino ${i + 1}`;
+  const nomeTreino = (i) => `${rotulo(i).toUpperCase()}${estado.treinos[i] && estado.treinos[i].nome ? ' — ' + estado.treinos[i].nome : ''}`;
   const feito = (e) => e.feitas.length >= e.series;
   function metaReps(e) { const m = String(e.reps).match(/\d+/); return m ? Number(m[0]) : 10; }
+  function faixa(e) {
+    const m = String(e.reps).match(/(\d+)\s*[–—-]\s*(\d+)/);
+    if (m) return [Number(m[1]), Number(m[2])];
+    const u = String(e.reps).match(/\d+/);
+    return u ? [Number(u[0]), Number(u[0])] : null;
+  }
   const fmtKg = (v) => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
-  const fmtSerie = (s) => `${fmtKg(s.kg)} kg × ${s.reps}`;
-  const umRM = (s) => (s.kg > 0 && s.reps > 0 ? s.kg * (1 + s.reps / 30) : 0); // fórmula de Epley
+  const fmtNum = (v, casas = 1) => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: casas });
+  const umRM = (s) => (s.kg > 0 && s.reps > 0 ? s.kg * (1 + s.reps / 30) : 0); // Epley
   const volume = (series) => series.reduce((t, s) => t + s.kg * s.reps, 0);
   const mmss = (seg) => {
     seg = Math.max(0, Math.floor(seg));
-    const h = Math.floor(seg / 3600);
+    const hh = Math.floor(seg / 3600);
     const m = String(Math.floor((seg % 3600) / 60)).padStart(2, '0');
     const s = String(seg % 60).padStart(2, '0');
-    return h ? `${h}:${m}:${s}` : `${m}:${s}`;
+    return hh ? `${hh}:${m}:${s}` : `${m}:${s}`;
   };
-  const dataCurta = (iso) => new Date(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
-  function haQuanto(iso) {
-    const d0 = new Date(iso); d0.setHours(0, 0, 0, 0);
-    const d1 = new Date(); d1.setHours(0, 0, 0, 0);
-    const dias = Math.round((d1 - d0) / 86400000);
+  const hoje = () => isoDia(new Date());
+  function isoDia(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+  function diaLocal(s) { // 'AAAA-MM-DD' ou ISO completo -> Date (meia-noite local)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
+    const d = new Date(s); d.setHours(0, 0, 0, 0); return d;
+  }
+  const somaDias = (s, n) => { const d = diaLocal(s); d.setDate(d.getDate() + n); return isoDia(d); };
+  const difDias = (a, b) => Math.round((diaLocal(b) - diaLocal(a)) / 86400000);
+  const dataCurta = (s) => diaLocal(s).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  const dataLonga = (s) => diaLocal(s).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const horaCurta = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  function haQuanto(s) {
+    const dias = difDias(s, hoje());
     if (dias <= 0) return 'hoje';
     if (dias === 1) return 'ontem';
     return `há ${dias} dias`;
   }
+
+  // --- catálogo / variações / carga ---
+  const catDe = (e) => (e && e.cat ? CATALOGO[e.cat] : null);
+  function variacaoDe(e) {
+    const c = catDe(e);
+    if (!c) return null;
+    return c.variacoes.find((v) => v.id === e.variacao) || c.variacoes[0];
+  }
+  const temVariacoes = (e) => { const c = catDe(e); return !!(c && c.variacoes.length > 1); };
+  function tipoCargaDe(e) {
+    if (e.tipoCarga) return e.tipoCarga;
+    const v = variacaoDe(e);
+    return (v && v.tipoCarga) || (catDe(e) && catDe(e).tipoCarga) || 'total';
+  }
+  const ROTULO_CARGA = { total: 'Carga total (kg)', halter: 'Kg por halter', lado: 'Kg por lado', corporal: 'Carga adicional (kg)' };
+  const SUFIXO_CARGA = { total: 'kg', halter: 'kg/halter', lado: 'kg/lado', corporal: 'kg adic.' };
+  const fmtSerie = (s, e) => `${fmtKg(s.kg)} ${SUFIXO_CARGA[e ? tipoCargaDe(e) : 'total']} × ${s.reps}`;
   function descricao(e) {
     const p = [`${e.series} × ${e.reps || '-'}`];
     if (e.carga !== '' && e.carga != null) p.push(`${fmtKg(e.carga)} kg`);
     if (e.descanso) p.push(`${e.descanso}s descanso`);
     return p.join(' · ');
   }
-  const sessoesDe = (e) => estado.log[e.id] || [];
+  function sessoesDe(e) {
+    const l = estado.log[e.id] || [];
+    if (!temVariacoes(e)) return l;
+    const v = variacaoDe(e).id;
+    const primeira = catDe(e).variacoes[0].id;
+    return l.filter((s) => (s.variacao || primeira) === v);
+  }
   const ultimaSessao = (e) => { const l = sessoesDe(e); return l[l.length - 1] || null; };
 
-  // Valor sugerido para a série i: o que fez na série anterior de hoje;
-  // senão o que fez nessa série no último treino; senão a meta cadastrada.
+  // Sugestão de valores para a série i (nunca aumenta a carga sozinho):
+  // série anterior de hoje → mesma série do último treino → meta cadastrada.
   function sugestao(e, i) {
-    if (i > 0 && e.feitas[i - 1]) return { ...e.feitas[i - 1] };
+    if (i > 0 && e.feitas[i - 1]) return { reps: e.feitas[i - 1].reps, kg: e.feitas[i - 1].kg };
     const u = ultimaSessao(e);
-    if (u && u.series.length) return { ...(u.series[i] || u.series[u.series.length - 1]) };
+    if (u && u.series.length) { const s = u.series[i] || u.series[u.series.length - 1]; return { reps: s.reps, kg: s.kg }; }
     return { reps: metaReps(e), kg: num(e.carga) };
   }
 
-  // ---------- Tela principal ----------
-  function render() {
-    renderAbas();
-    renderTreino();
-    renderHistorico();
-    renderProximo();
+  // Progressão: atingiu o topo da faixa em todas as séries do último treino?
+  function progressao(e) {
+    const u = ultimaSessao(e);
+    const f = faixa(e);
+    if (!u || !f || u.series.length < e.series) return null;
+    const topo = f[1];
+    if (!u.series.every((s) => s.reps >= topo)) return null;
+    const kg = Math.max(...u.series.map((s) => s.kg));
+    const tipo = tipoCargaDe(e);
+    let txt;
+    if (kg <= 0) txt = 'considere acrescentar uma carga pequena ou deixar o movimento mais difícil';
+    else if (tipo === 'halter') txt = 'considere subir para o próximo halter (normalmente +1 a +2 kg por halter)';
+    else {
+      const r = (v) => Math.max(1, Math.round(v * 2) / 2);
+      const lo = r(kg * 0.025); const hi = Math.max(lo, r(kg * 0.05));
+      txt = `considere subir aos poucos, cerca de +${fmtKg(lo)}${hi > lo ? ` a +${fmtKg(hi)}` : ''} kg (2,5–5%)`;
+    }
+    return { topo, kg, texto: txt };
   }
 
+  // ---------- Navegação ----------
+  let vista = 'vInicio';
+  function irPara(id) {
+    vista = id;
+    document.querySelectorAll('.vista').forEach((v) => { v.hidden = v.id !== id; });
+    document.querySelectorAll('.menu button').forEach((b) => b.classList.toggle('ativo', b.dataset.ir === id));
+    renderVista();
+    window.scrollTo(0, 0);
+  }
+  document.querySelectorAll('[data-ir]').forEach((b) => { b.onclick = () => irPara(b.dataset.ir); });
+
+  function render() { renderVista(); }
+  function renderVista() {
+    if (vista === 'vInicio') renderInicio();
+    else if (vista === 'vTreinos') { renderAbas(); renderTreino(); renderProximo(); }
+    else if (vista === 'vExercicios') renderExercicios();
+    else if (vista === 'vEvolucao') renderEvolucao();
+  }
+
+  // ---------- Início ----------
+  const doPrograma = (x) => estado.programa && x.programa === estado.programa.id;
+
+  function proximoTreinoApos(i) {
+    for (let k = 1; k <= TOTAL_TREINOS; k++) {
+      const j = (i + k) % TOTAL_TREINOS;
+      if (estado.treinos[j].exercicios.length) return j;
+    }
+    return i;
+  }
+  function proximoDaSequencia() {
+    const ultimo = estado.programa ? estado.historico.find(doPrograma) : estado.historico[0];
+    if (!ultimo) return Math.max(0, estado.treinos.findIndex((t) => t.exercicios.length));
+    return proximoTreinoApos(ultimo.treino);
+  }
+
+  function renderInicio() {
+    const p = estado.perfil || (PROGRAMA && PROGRAMA.perfil);
+    const dur = (PROGRAMA && PROGRAMA.duracaoDias) || 90;
+    if (p) {
+      const d = difDias(p.inicio, hoje());
+      $('iDia').textContent = d < 0 ? `Começa em ${dataLonga(p.inicio)}` : `Dia ${Math.min(d, dur)} de ${dur}`;
+      $('iBarra90').style.width = `${Math.max(0, Math.min(1, d / dur)) * 100}%`;
+      $('iDatas').textContent = `Início ${dataLonga(p.inicio)} · término previsto ${dataLonga(somaDias(p.inicio, dur))}`;
+    }
+    const doProg = estado.historico.filter(doPrograma);
+    $('iTreinos').textContent = String(doProg.length);
+    $('iSeries').textContent = String(doProg.reduce((t, x) => t + num(x.series), 0));
+    $('iDescansos').textContent = String(estado.descansos.filter((d) => !p || d >= p.inicio).length);
+
+    // Treino atual
+    const s = estado.sessao;
+    const i = s ? s.treino : proximoDaSequencia();
+    const t = estado.treinos[i];
+    $('iAtualNome').textContent = nomeTreino(i);
+    const nSeries = t.exercicios.reduce((a, e) => a + e.series, 0);
+    $('iAtualInfo').textContent = s
+      ? `Em andamento · ${t.exercicios.reduce((a, e) => a + e.feitas.length, 0)} de ${nSeries} séries feitas`
+      : `${t.exercicios.length} exercícios · ${nSeries} séries${t.objetivo ? ' · ' + t.objetivo : ''}`;
+    $('iAtualBtn').textContent = s ? 'CONTINUAR TREINO' : 'INICIAR TREINO';
+    $('iAtualBtn').onclick = () => iniciarTreino(i);
+    $('iAtualBtn').disabled = !t.exercicios.length;
+    const descansouHoje = estado.descansos.includes(hoje());
+    $('iDescanso').textContent = descansouHoje ? '✓ Descanso registrado hoje (toque para desfazer)' : 'Registrar dia de descanso';
+
+    // Cards dos 5 treinos
+    const lista = $('iTreinosLista');
+    lista.innerHTML = '';
+    estado.treinos.forEach((tr, k) => {
+      const ult = estado.historico.find((x) => x.treino === k && doPrograma(x));
+      const ns = tr.exercicios.reduce((a, e) => a + e.series, 0);
+      lista.append(h('div', { class: 'card-treino' + (k === i ? ' proximo-treino' : '') },
+        h('div', { class: 'num' }, `TREINO ${k + 1}`, k === i ? h('span', { class: 'selo', text: s ? 'em andamento' : 'próximo' }) : null),
+        h('h3', { text: tr.nome || 'Sem nome' }),
+        tr.objetivo ? h('p', { text: tr.objetivo }) : null,
+        h('p', { text: `${tr.exercicios.length} exercícios · ${ns} séries · ${ult ? 'último: ' + haQuanto(ult.data) : 'ainda não feito'}` }),
+        h('div', { class: 'linha-btns' },
+          h('button', { class: 'btn primario', text: 'INICIAR TREINO', disabled: !tr.exercicios.length, onclick: () => iniciarTreino(k) }),
+          h('button', { class: 'btn leve', text: 'Ver ficha', onclick: () => { estado.atual = k; salvar(); irPara('vTreinos'); } }),
+        ),
+      ));
+    });
+    renderHistorico();
+  }
+
+  $('iDescanso').onclick = () => {
+    const d = hoje();
+    if (estado.descansos.includes(d)) estado.descansos = estado.descansos.filter((x) => x !== d);
+    else estado.descansos = [...estado.descansos, d].sort();
+    salvar(); renderInicio();
+  };
+
+  function renderHistorico() {
+    const ul = $('historico');
+    ul.innerHTML = '';
+    const itens = [
+      ...estado.historico.map((x) => ({ tipo: 'treino', data: x.data, x })),
+      ...estado.descansos.map((d) => ({ tipo: 'descanso', data: d })),
+    ].sort((a, b) => (diaLocal(b.data) - diaLocal(a.data)) || (b.data > a.data ? 1 : -1)).slice(0, 20);
+    if (!itens.length) { ul.append(h('li', {}, h('span', { text: 'Nenhum treino concluído ainda.' }))); return; }
+    itens.forEach((it) => {
+      if (it.tipo === 'descanso') {
+        ul.append(h('li', { class: 'descanso-dia' }, h('span', { text: '😴 Dia de descanso' }), h('span', { text: dataCurta(it.data) })));
+        return;
+      }
+      const x = it.x;
+      const partes = [`${rotulo(x.treino)}${x.nome ? ' — ' + x.nome : ''}`];
+      if (x.series != null) partes.push(`${x.series}${x.seriesPlanejadas ? '/' + x.seriesPlanejadas : ''} séries`);
+      else partes.push(`${x.feitos}/${x.total} exerc.`);
+      if (x.duracao) partes.push(mmss(x.duracao));
+      if (x.volume) partes.push(`${fmtKg(x.volume)} kg`);
+      ul.append(h('li', {}, h('span', { text: partes.join(' · ') }), h('span', { text: dataCurta(x.data) })));
+    });
+  }
+
+  function iniciarTreino(i) {
+    const s = estado.sessao;
+    if (s && s.treino !== i && !confirm(`O ${rotulo(s.treino)} está em andamento. Começar o ${rotulo(i)}? (as séries já feitas continuam salvas)`)) return;
+    estado.atual = i;
+    salvar();
+    abrirModo();
+  }
+
+  // ---------- Treinos (ficha) ----------
   function renderAbas() {
     const abas = $('abas');
     abas.innerHTML = '';
     estado.treinos.forEach((t, i) => {
-      const b = document.createElement('button');
-      b.className = 'aba' + (i === estado.atual ? ' ativa' : '');
-      b.textContent = String(i + 1);
-      const s = document.createElement('small');
-      s.textContent = t.nome || `${t.exercicios.length} exerc.`;
-      b.appendChild(s);
-      b.setAttribute('aria-label', rotulo(i) + (t.nome ? ` — ${t.nome}` : ''));
-      b.onclick = () => { estado.atual = i; salvar(); render(); };
-      abas.appendChild(b);
+      abas.append(h('button', {
+        class: 'aba' + (i === estado.atual ? ' ativa' : ''),
+        'aria-label': rotulo(i) + (t.nome ? ` — ${t.nome}` : ''),
+        onclick: () => { estado.atual = i; salvar(); renderVista(); },
+      }, String(i + 1), h('small', { text: t.nome || `${t.exercicios.length} exerc.` })));
     });
   }
 
@@ -156,98 +432,60 @@
     const nome = $('nomeTreino');
     if (document.activeElement !== nome) nome.value = t.nome;
     nome.placeholder = `${rotulo(estado.atual)} — ex.: Peito e tríceps`;
+    $('objetivoTreino').textContent = t.objetivo ? `Objetivo: ${t.objetivo}` : '';
 
     const lista = $('lista');
     lista.innerHTML = '';
-    t.exercicios.forEach((e, idx) => lista.appendChild(itemExercicio(e, idx, t.exercicios.length)));
+    t.exercicios.forEach((e, idx) => lista.append(itemExercicio(e, idx, t.exercicios.length)));
 
     const total = t.exercicios.length;
     const feitos = t.exercicios.filter(feito).length;
+    const nSeries = t.exercicios.reduce((a, e) => a + e.series, 0);
     $('vazio').hidden = total > 0;
     $('barra').style.width = total ? `${(feitos / total) * 100}%` : '0';
-    $('contagem').textContent = total ? `${feitos} de ${total} exercícios feitos` : '';
+    $('contagem').textContent = total ? `${feitos} de ${total} exercícios feitos · ${nSeries} séries no treino` : '';
     $('btnConcluir').disabled = total === 0;
     const comecar = $('btnComecar');
     comecar.hidden = total === 0;
-    comecar.textContent = sessaoDoAtual() ? '▶ Continuar treino' : '▶ Começar treino';
+    comecar.textContent = sessaoDoAtual() ? 'CONTINUAR TREINO' : 'INICIAR TREINO';
   }
 
   function itemExercicio(e, idx, total) {
-    const li = document.createElement('li');
-    li.className = 'item' + (feito(e) ? ' feito' : '');
-
-    const check = document.createElement('button');
-    check.className = 'check';
-    check.textContent = feito(e) ? '✓' : '';
-    check.setAttribute('aria-label', feito(e) ? 'Desmarcar' : 'Marcar como feito');
-    check.onclick = () => {
-      if (feito(e)) e.feitas = [];
-      else while (e.feitas.length < e.series) e.feitas.push(sugestao(e, e.feitas.length));
-      salvar(); render();
-    };
-
-    const info = document.createElement('div');
-    info.className = 'info';
-    info.onclick = () => abrirModo(idx);
-    const titulo = document.createElement('div');
-    titulo.className = 'titulo';
-    titulo.textContent = e.nome;
-    const det = document.createElement('div');
-    det.className = 'detalhes';
-    det.textContent = descricao(e);
-    info.append(titulo, det);
-    if (e.feitas.length && !feito(e)) {
-      const s = document.createElement('div');
-      s.className = 'detalhes series-mini';
-      s.textContent = `${e.feitas.length}/${e.series} séries feitas`;
-      info.appendChild(s);
-    }
+    const info = h('div', { class: 'info', onclick: () => abrirModo(idx) },
+      h('div', { class: 'titulo', text: e.nome }),
+      temVariacoes(e) ? h('div', { class: 'detalhes', text: `Variação: ${variacaoDe(e).nome}` }) : null,
+      h('div', { class: 'detalhes', text: descricao(e) }),
+    );
+    if (e.feitas.length && !feito(e)) info.append(h('div', { class: 'detalhes series-mini', text: `${e.feitas.length}/${e.series} séries feitas` }));
     const u = ultimaSessao(e);
     if (u && u.series.length) {
-      const s = document.createElement('div');
-      s.className = 'detalhes ultima';
       const melhor = u.series.reduce((a, b) => (b.kg > a.kg ? b : a));
-      s.textContent = `Última: ${fmtSerie(melhor)} (${haQuanto(u.data)})`;
-      info.appendChild(s);
+      info.append(h('div', { class: 'detalhes ultima', text: `Última: ${fmtSerie(melhor, e)} (${haQuanto(u.data)})` }));
     }
-    if (e.obs) {
-      const o = document.createElement('div');
-      o.className = 'obs';
-      o.textContent = e.obs;
-      info.appendChild(o);
-    }
+    if (e.obs) info.append(h('div', { class: 'obs', text: e.obs }));
 
-    const stats = document.createElement('button');
-    stats.className = 'btn leve pequeno stats';
-    stats.textContent = '📊';
-    stats.setAttribute('aria-label', 'Resumo e histórico');
-    stats.onclick = () => abrirDetalhes(e.id);
-
-    const editar = document.createElement('button');
-    editar.className = 'btn leve pequeno editar';
-    editar.textContent = '✎';
-    editar.setAttribute('aria-label', 'Editar exercício');
-    editar.onclick = () => abrirForm(e.id);
-
-    const mover = document.createElement('div');
-    mover.className = 'mover';
-    mover.append(
-      botaoMini('▲', 'Mover para cima', idx === 0, () => moverExercicio(idx, -1)),
-      botaoMini('▼', 'Mover para baixo', idx === total - 1, () => moverExercicio(idx, 1)),
+    const check = h('button', {
+      class: 'check', text: feito(e) ? '✓' : '', 'aria-label': feito(e) ? 'Desmarcar' : 'Marcar como feito',
+      onclick: () => {
+        if (feito(e)) e.feitas = [];
+        else while (e.feitas.length < e.series) e.feitas.push({ ...sugestao(e, e.feitas.length), t: new Date().toISOString() });
+        salvar(); renderVista();
+      },
+    });
+    return h('li', { class: 'item' + (feito(e) ? ' feito' : '') },
+      check, info,
+      h('button', { class: 'btn leve pequeno stats', text: '📊', 'aria-label': 'Resumo e histórico', onclick: () => abrirDetalhes(e.id) }),
+      h('button', { class: 'btn leve pequeno editar', text: '✎', 'aria-label': 'Editar exercício', onclick: () => abrirForm(e.id) }),
+      h('div', { class: 'mover' },
+        botaoMini('▲', 'Mover para cima', idx === 0, () => moverExercicio(idx, -1)),
+        botaoMini('▼', 'Mover para baixo', idx === total - 1, () => moverExercicio(idx, 1))),
     );
-
-    li.append(check, info, stats, editar, mover);
-    return li;
   }
 
   function botaoMini(txt, label, desativado, acao) {
-    const b = document.createElement('button');
-    b.className = 'mini';
-    b.textContent = txt;
-    b.setAttribute('aria-label', label);
+    const b = h('button', { class: 'mini', text: txt, 'aria-label': label, onclick: acao });
     b.disabled = desativado;
     b.style.visibility = desativado ? 'hidden' : 'visible';
-    b.onclick = acao;
     return b;
   }
 
@@ -264,68 +502,86 @@
     salvar(); renderTreino();
   }
 
-  function renderHistorico() {
-    const ul = $('historico');
-    ul.innerHTML = '';
-    if (!estado.historico.length) {
-      const li = document.createElement('li');
-      li.innerHTML = '<span>Nenhum treino concluído ainda.</span>';
-      ul.appendChild(li);
-      return;
-    }
-    estado.historico.slice(0, 15).forEach((h) => {
-      const li = document.createElement('li');
-      const a = document.createElement('span');
-      a.textContent = `${rotulo(h.treino)}${h.nome ? ' — ' + h.nome : ''} (${h.feitos}/${h.total})`
-        + (h.duracao ? ` · ${mmss(h.duracao)}` : '')
-        + (h.volume ? ` · ${fmtKg(h.volume)} kg` : '');
-      const b = document.createElement('span');
-      b.textContent = dataCurta(h.data);
-      li.append(a, b);
-      ul.appendChild(li);
+  function renderProximo() {
+    const p = $('proximo');
+    p.innerHTML = '';
+    const prox = proximoDaSequencia();
+    p.append('Próximo na sequência: ', h('b', { text: nomeTreino(prox) }));
+  }
+
+  $('nomeTreino').addEventListener('input', (ev) => { treinoAtual().nome = ev.target.value; salvar(); renderAbas(); });
+  $('nomeTreino').addEventListener('change', renderVista);
+  $('btnAdd').onclick = () => abrirForm();
+  $('btnComecar').onclick = () => iniciarTreino(estado.atual);
+  $('btnConcluir').onclick = () => {
+    const t = treinoAtual();
+    if (!t.exercicios.length) return;
+    const feitas = t.exercicios.reduce((a, e) => a + e.feitas.length, 0);
+    const total = t.exercicios.reduce((a, e) => a + e.series, 0);
+    if (!feitas) { alert('Nenhuma série foi registrada neste treino ainda.'); return; }
+    if (confirm(`Concluir ${rotulo(estado.atual)}? ${feitas} de ${total} séries registradas.`)) concluirTreino();
+  };
+
+  // ---------- Exercícios (lista com histórico) ----------
+  function renderExercicios() {
+    const box = $('exLista');
+    box.innerHTML = '';
+    estado.treinos.forEach((t, i) => {
+      if (!t.exercicios.length) return;
+      const g = h('div', { class: 'grupo-ex' }, h('h3', { text: nomeTreino(i) }));
+      t.exercicios.forEach((e) => {
+        const l = sessoesDe(e);
+        const u = l[l.length - 1];
+        const todas = l.flatMap((s) => s.series);
+        const sub = u
+          ? `Última: ${fmtSerie(u.series.reduce((a, b) => (b.kg > a.kg ? b : a)), e)} · Melhor carga: ${fmtKg(Math.max(...todas.map((s) => s.kg)))} kg`
+          : 'Sem registros ainda';
+        g.append(h('button', { class: 'ex-linha', onclick: () => abrirDetalhes(e.id) },
+          h('div', {}, e.nome, temVariacoes(e) ? ` (${variacaoDe(e).nome})` : '', h('small', { text: `${e.series} × ${e.reps} · ${sub}` })),
+          h('b', { text: '📊' })));
+      });
+      box.append(g);
     });
   }
 
-  function proximoTreinoApos(i) {
-    for (let k = 1; k <= TOTAL_TREINOS; k++) {
-      const j = (i + k) % TOTAL_TREINOS;
-      if (estado.treinos[j].exercicios.length) return j;
-    }
-    return i;
-  }
-
-  function renderProximo() {
-    const p = $('proximo');
-    const ultimo = estado.historico[0];
-    if (!ultimo) { p.textContent = 'Monte seus treinos de 1 a 5.'; return; }
-    const prox = proximoTreinoApos(ultimo.treino);
-    const nome = estado.treinos[prox].nome;
-    p.innerHTML = '';
-    p.append('Próximo: ');
-    const b = document.createElement('b');
-    b.textContent = rotulo(prox) + (nome ? ` — ${nome}` : '');
-    p.appendChild(b);
-  }
-
-  // ---------- Formulário ----------
+  // ---------- Formulário de exercício ----------
   const dlg = $('dlg');
   const form = $('form');
-  let editandoId = null;
+  let editando = null; // { ti, id }
 
-  function abrirForm(id = null) {
-    editandoId = id;
-    const e = id ? treinoAtual().exercicios.find((x) => x.id === id) : null;
+  function acharExercicio(id) {
+    for (let ti = 0; ti < estado.treinos.length; ti++) {
+      const e = estado.treinos[ti].exercicios.find((x) => x.id === id);
+      if (e) return { e, ti };
+    }
+    return null;
+  }
+
+  function abrirForm(id = null, focarVideo = false) {
+    const achado = id ? acharExercicio(id) : null;
+    const e = achado ? achado.e : null;
+    editando = { ti: achado ? achado.ti : estado.atual, id: e ? e.id : null };
     $('dlgTitulo').textContent = e ? 'Editar exercício' : `Novo exercício — ${rotulo(estado.atual)}`;
+    $('dlgAviso').hidden = !(e && e.cat);
     form.nome.value = e ? e.nome : '';
     form.series.value = e ? e.series : 3;
     form.reps.value = e ? e.reps : '12';
     form.carga.value = e ? e.carga : '';
-    form.descanso.value = e ? e.descanso : 60;
+    form.descanso.value = e ? e.descanso : 90;
+    form.tipoCarga.value = e && e.tipoCarga ? e.tipoCarga : '';
     form.video.value = e ? e.video : '';
     form.obs.value = e ? e.obs : '';
     $('btnExcluir').hidden = !e;
+    $('btnRestaurar').hidden = !(e && e.cat && planoDe(e.cat));
     dlg.showModal();
-    if (!e) form.nome.focus();
+    if (focarVideo) form.video.focus();
+    else if (!e) form.nome.focus();
+  }
+
+  function planoDe(cat) {
+    if (!PROGRAMA) return null;
+    for (const t of PROGRAMA.treinos) for (const [c, series, reps] of t.exercicios) if (c === cat) return { series, reps };
+    return null;
   }
 
   form.addEventListener('submit', (ev) => {
@@ -336,32 +592,37 @@
       nome,
       series: Math.max(1, num(form.series.value, 1)),
       reps: form.reps.value.trim(),
-      carga: form.carga.value === '' ? '' : num(form.carga.value),
+      carga: numOuVazio(form.carga.value),
       descanso: Math.max(0, num(form.descanso.value)),
+      tipoCarga: form.tipoCarga.value || null,
       video: form.video.value.trim(),
       obs: form.obs.value.trim(),
     };
-    const lista = treinoAtual().exercicios;
-    if (editandoId) {
-      const e = lista.find((x) => x.id === editandoId);
+    const lista = estado.treinos[editando.ti].exercicios;
+    if (editando.id) {
+      const e = lista.find((x) => x.id === editando.id);
       Object.assign(e, dados);
       e.feitas = e.feitas.slice(0, e.series);
     } else {
-      lista.push({ id: novoId(), feitas: [], ...dados });
+      lista.push({ id: novoId(), cat: null, variacao: null, descansoFaixa: '', nota: '', feitas: [], ...dados });
     }
-    salvar(); dlg.close(); render();
-    if (modoAberto()) { midiaDe = null; renderModo(); }
-    if (!$('det').hidden) renderDetalhes();
+    salvar(); dlg.close(); atualizarTudo(true);
   });
 
+  $('btnRestaurar').onclick = () => {
+    const e = acharExercicio(editando.id).e;
+    const p = planoDe(e.cat);
+    const c = CATALOGO[e.cat];
+    form.nome.value = c.nome; form.series.value = p.series; form.reps.value = p.reps; form.descanso.value = c.descanso;
+  };
   $('btnCancelar').onclick = () => dlg.close();
   $('btnExcluir').onclick = () => {
-    if (!editandoId || !confirm('Excluir este exercício? O histórico dele também será apagado.')) return;
-    const t = treinoAtual();
-    const idx = t.exercicios.findIndex((x) => x.id === editandoId);
+    if (!editando.id) return;
+    if (!confirm('Excluir este exercício da ficha? O histórico de cargas dele continua guardado.')) return;
+    const t = estado.treinos[editando.ti];
+    const idx = t.exercicios.findIndex((x) => x.id === editando.id);
     t.exercicios.splice(idx, 1);
-    delete estado.log[editandoId];
-    const s = sessaoDoAtual();
+    const s = estado.sessao && estado.sessao.treino === editando.ti ? estado.sessao : null;
     if (s) {
       if (!t.exercicios.length) { estado.sessao = null; fecharModo(); }
       else {
@@ -370,58 +631,68 @@
         delete s.entrada;
       }
     }
-    salvar(); dlg.close(); fecharDetalhes(); render();
-    if (modoAberto()) { midiaDe = null; renderModo(); }
+    salvar(); dlg.close(); fecharDetalhes(); atualizarTudo(true);
   };
 
-  // ---------- Ações principais ----------
-  $('btnAdd').onclick = () => abrirForm();
-  $('btnComecar').onclick = () => abrirModo();
+  function atualizarTudo(recarregarMidia) {
+    renderVista();
+    if (modoAberto()) { if (recarregarMidia) midiaDe = null; renderModo(); }
+    if (!$('det').hidden) renderDetalhes();
+  }
 
-  $('nomeTreino').addEventListener('input', (ev) => {
-    treinoAtual().nome = ev.target.value;
-    salvar(); renderAbas();
-  });
-  $('nomeTreino').addEventListener('change', render);
-
-  $('btnConcluir').onclick = () => {
-    const t = treinoAtual();
-    if (!t.exercicios.length) return;
-    const feitos = t.exercicios.filter(feito).length;
-    const msg = feitos < t.exercicios.length
-      ? `Você fez ${feitos} de ${t.exercicios.length} exercícios. Concluir mesmo assim?`
-      : `Concluir ${rotulo(estado.atual)}?`;
-    if (confirm(msg)) concluirTreino();
-  };
-
+  // ---------- Conclusão do treino + resumo ----------
   function concluirTreino() {
+    const ti = estado.atual;
     const t = treinoAtual();
     const s = sessaoDoAtual();
     const agora = new Date().toISOString();
-    let vol = 0;
+    let vol = 0; let nSeries = 0;
+    const linhas = [];
     t.exercicios.forEach((e) => {
       if (!e.feitas.length) return;
-      (estado.log[e.id] = estado.log[e.id] || []).push({ data: agora, treino: estado.atual, series: e.feitas.map(serie) });
-      vol += volume(e.feitas);
+      const v = variacaoDe(e);
+      (estado.log[e.id] = estado.log[e.id] || []).push({
+        data: agora, treino: ti, variacao: v ? v.id : undefined, variacaoNome: temVariacoes(e) ? v.nome : undefined,
+        series: e.feitas.map(serie), obs: e.nota || undefined,
+      });
+      vol += volume(e.feitas); nSeries += e.feitas.length;
+      const top = e.feitas.reduce((a, b) => (b.kg > a.kg ? b : a));
+      linhas.push([e.nome, `${e.feitas.length}/${e.series} · melhor ${fmtSerie(top, e)}`]);
     });
+    const planejadas = t.exercicios.reduce((a, e) => a + e.series, 0);
+    const duracao = s ? Math.round(((s.fimTreino || Date.now()) - s.inicio) / 1000) : 0;
     estado.historico.unshift({
-      treino: estado.atual, nome: t.nome, data: agora,
+      programa: estado.programa ? estado.programa.id : undefined,
+      treino: ti, nome: t.nome, data: agora,
       feitos: t.exercicios.filter(feito).length, total: t.exercicios.length,
-      duracao: s ? Math.round(((s.fimTreino || Date.now()) - s.inicio) / 1000) : 0,
-      volume: Math.round(vol),
+      series: nSeries, seriesPlanejadas: planejadas, duracao, volume: Math.round(vol),
     });
-    estado.historico = estado.historico.slice(0, 200);
-    t.exercicios.forEach((e) => { e.feitas = []; });
+    estado.historico = estado.historico.slice(0, 500);
+    t.exercicios.forEach((e) => { e.feitas = []; e.nota = ''; });
     estado.sessao = null;
-    estado.atual = proximoTreinoApos(estado.atual);
+    estado.atual = proximoTreinoApos(ti);
     salvar();
     fecharModo();
-    render();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    renderVista();
+    mostrarResumo(ti, t.nome, duracao, nSeries, planejadas, vol, linhas);
   }
 
+  function mostrarResumo(ti, nome, duracao, nSeries, planejadas, vol, linhas) {
+    $('rsTitulo').textContent = `${rotulo(ti)}${nome ? ' — ' + nome : ''}`;
+    const k = $('rsKpis'); k.innerHTML = '';
+    k.append(
+      h('div', {}, h('b', { text: duracao ? mmss(duracao) : '—' }), h('span', { text: 'duração' })),
+      h('div', {}, h('b', { text: `${nSeries}/${planejadas}` }), h('span', { text: 'séries concluídas' })),
+      h('div', {}, h('b', { text: `${fmtKg(Math.round(vol))}` }), h('span', { text: 'kg de volume' })),
+    );
+    const ul = $('rsLista'); ul.innerHTML = '';
+    linhas.forEach(([a, b]) => ul.append(h('li', {}, h('span', { text: a }), h('span', { text: b }))));
+    $('dlgResumo').showModal();
+  }
+  $('rsOk').onclick = () => $('dlgResumo').close();
+
   // ---------- Tela de treino ----------
-  // sessao: { treino, inicio, ex, fase: 'serie'|'descanso'|'completo', desde, fim, prox, fimTreino, entrada }
+  // sessao: { treino, inicio, ex, fase: 'serie'|'descanso'|'completo', desde, fim, pausa, descansoTotal, prox, fimTreino, entrada }
   const sessaoDoAtual = () => (estado.sessao && estado.sessao.treino === estado.atual ? estado.sessao : null);
   const modoAberto = () => !$('modo').hidden;
   let loop = null;
@@ -447,12 +718,13 @@
       s = estado.sessao = { treino: estado.atual, inicio: Date.now(), ex: ini, fase: 'serie', desde: Date.now() };
       if (primeiroPendente(t) === -1) s.fase = 'completo';
     } else if (exIdx != null && exIdx !== s.ex) {
-      irPara(exIdx);
+      irExercicio(exIdx);
     }
     salvar();
     $('modo').hidden = false;
     document.body.classList.add('treinando');
     midiaDe = null;
+    $('mComo').open = false;
     renderModo();
     clearInterval(loop);
     loop = setInterval(tickModo, 250);
@@ -466,20 +738,20 @@
     $('mMidia').innerHTML = '';
     midiaDe = null;
     if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
-    renderTreino();
+    renderVista();
   }
 
-  function irPara(i) {
+  function irExercicio(i) {
     const s = sessaoDoAtual();
-    const n = treinoAtual().exercicios.length;
-    if (!s || i < 0 || i >= n) return;
-    s.ex = i; s.fase = feito(treinoAtual().exercicios[i]) && primeiroPendente(treinoAtual()) === -1 ? 'completo' : 'serie';
+    const t = treinoAtual();
+    if (!s || i < 0 || i >= t.exercicios.length) return;
+    s.ex = i;
+    s.fase = feito(t.exercicios[i]) && primeiroPendente(t) === -1 ? 'completo' : 'serie';
     s.desde = Date.now();
-    delete s.fim; delete s.prox; delete s.entrada;
+    delete s.fim; delete s.prox; delete s.entrada; delete s.pausa;
     if (s.fase === 'serie') delete s.fimTreino;
   }
 
-  // Exercício e série que estão na tela agora (no descanso, já mostra o que vem a seguir).
   function exibido() {
     const s = sessaoDoAtual();
     const t = treinoAtual();
@@ -490,18 +762,25 @@
 
   function entradaAtual() {
     const { s, e, i } = exibido();
-    const chave = `${e.id}:${i}`;
+    const chave = `${e.id}:${e.variacao}:${i}`;
     if (!s.entrada || s.entrada.chave !== chave) s.entrada = { chave, ...sugestao(e, i) };
     return s.entrada;
+  }
+
+  function iniciarDescanso(segundos, prox) {
+    const s = sessaoDoAtual();
+    s.fase = 'descanso'; s.desde = Date.now(); s.prox = prox;
+    s.descansoTotal = segundos; s.fim = Date.now() + segundos * 1000;
+    delete s.pausa;
   }
 
   function terminarSerie() {
     const s = sessaoDoAtual();
     const t = treinoAtual();
     const e = t.exercicios[s.ex];
-    if (feito(e)) { irPara(primeiroPendente(t, s.ex + 1)); salvar(); renderModo(); return; }
+    if (feito(e)) { irExercicio(Math.max(0, primeiroPendente(t, s.ex + 1))); salvar(); renderModo(); return; }
     const ent = entradaAtual();
-    e.feitas.push(serie(ent));
+    e.feitas.push({ reps: Math.max(0, Math.round(num(ent.reps))), kg: Math.max(0, num(ent.kg)), t: new Date().toISOString() });
     delete s.entrada;
     let prox = s.ex;
     if (feito(e)) {
@@ -509,28 +788,28 @@
       if (prox === -1) {
         s.fase = 'completo'; s.fimTreino = Date.now();
         alertar();
-        salvar(); renderModo(); renderTreino();
+        salvar(); renderModo();
         return;
       }
     }
-    if (e.descanso > 0) {
-      s.fase = 'descanso'; s.desde = Date.now(); s.fim = Date.now() + e.descanso * 1000; s.prox = prox;
-    } else {
-      irPara(prox);
-    }
-    salvar(); renderModo(); renderTreino();
+    if (e.descanso > 0) iniciarDescanso(e.descanso, prox);
+    else irExercicio(prox);
+    salvar(); renderModo();
+  }
+
+  function fimDoDescanso() {
+    const s = sessaoDoAtual();
+    const ent = s.entrada; // mantém o que foi ajustado durante o descanso
+    irExercicio(s.prox);
+    if (ent) s.entrada = ent;
   }
 
   function tickModo() {
     const s = sessaoDoAtual();
     if (!s) return;
-    if (s.fase === 'descanso' && Date.now() >= s.fim) {
-      const ent = s.entrada; // mantém o que a pessoa ajustou durante o descanso
-      irPara(s.prox);
-      if (ent) s.entrada = ent;
-      salvar();
-      alertar();
-      renderModo();
+    if (s.fase === 'descanso' && s.pausa == null && Date.now() >= s.fim) {
+      fimDoDescanso();
+      salvar(); alertar(); renderModo();
       return;
     }
     atualizarTempos();
@@ -539,10 +818,13 @@
   function atualizarTempos() {
     const s = sessaoDoAtual();
     if (!s) return;
-    const agora = s.fimTreino || Date.now();
-    $('mTotal').textContent = mmss((agora - s.inicio) / 1000);
-    if (s.fase === 'descanso') $('mTempo').textContent = mmss(Math.ceil((s.fim - Date.now()) / 1000));
-    else if (s.fase === 'serie') $('mTempo').textContent = mmss((Date.now() - s.desde) / 1000);
+    $('mTotal').textContent = mmss(((s.fimTreino || Date.now()) - s.inicio) / 1000);
+    if (s.fase === 'descanso') {
+      const resta = s.pausa != null ? s.pausa : s.fim - Date.now();
+      $('mTempo').textContent = mmss(Math.ceil(resta / 1000));
+    } else if (s.fase === 'serie' && !feito(treinoAtual().exercicios[s.ex])) {
+      $('mTempo').textContent = mmss((Date.now() - s.desde) / 1000);
+    }
   }
 
   function renderModo() {
@@ -550,93 +832,136 @@
     const t = treinoAtual();
     if (!s || !t.exercicios.length) { fecharModo(); return; }
     const { idx, e, i } = exibido();
+    const tipo = tipoCargaDe(e);
 
-    $('mTreino').textContent = rotulo(estado.atual) + (t.nome ? ` — ${t.nome}` : '');
+    $('mTreino').textContent = nomeTreino(estado.atual);
     $('mPosicao').textContent = `Exercício ${idx + 1} de ${t.exercicios.length}`;
     $('mNome').textContent = e.nome;
-    $('mObs').textContent = e.obs;
-    if (midiaDe !== e.id + '|' + e.video) { midiaDe = e.id + '|' + e.video; renderMidia($('mMidia'), e); }
+    const chaveMidia = `${e.id}|${e.variacao}|${e.video}`;
+    if (midiaDe !== chaveMidia) { midiaDe = chaveMidia; renderMidia($('mMidia'), e); renderComo($('mComoCorpo'), e); }
+    renderSeletorVariacao($('mVariacao'), e);
 
-    // Meta e última vez
     const meta = $('mMeta');
     meta.innerHTML = '';
     meta.append(`Meta: ${e.reps || '-'} reps`);
+    if (e.descansoFaixa) meta.append(h('span', { text: ` · descanso ${e.descanso}s (${e.descansoFaixa})` }));
     const u = ultimaSessao(e);
-    if (u && u.series.length) {
-      const sp = document.createElement('span');
-      sp.textContent = ` · Última: ${fmtSerie(u.series[i] || u.series[u.series.length - 1])}`;
-      meta.appendChild(sp);
-    }
+    if (u && u.series.length) meta.append(h('span', { text: ` · Última: ${fmtSerie(u.series[i] || u.series[u.series.length - 1], e)} reps` }));
 
-    // Séries já feitas hoje
-    const fe = $('mFeitas');
-    fe.innerHTML = '';
-    e.feitas.forEach((x, k) => {
-      const c = document.createElement('span');
-      c.textContent = `S${k + 1}: ${fmtSerie(x)}`;
-      fe.appendChild(c);
-    });
+    const pg = $('mProgressao');
+    pg.innerHTML = '';
+    const prog = progressao(e);
+    if (prog) pg.append(h('div', { class: 'aviso-prog' }, h('b', { text: '💡 Hora de progredir? ' }),
+      `No último treino você fez ${prog.topo}+ repetições (topo da faixa) em todas as séries. Se a execução foi boa, ${prog.texto}. A carga não muda sozinha: ajuste no campo de peso.`));
+
+    // Lista de séries
+    const ol = $('mSeries');
+    ol.innerHTML = '';
+    for (let k = 0; k < e.series; k++) {
+      const x = e.feitas[k];
+      if (x) {
+        ol.append(h('li', { class: 'ok', title: 'Toque para editar', onclick: () => editarSerie(e.feitas, k, e) },
+          h('span', { class: 's-n', text: `Série ${k + 1}` }),
+          h('span', { class: 's-v', text: `${fmtKg(x.kg)} ${SUFIXO_CARGA[tipo]} — ${x.reps} reps` }),
+          h('span', { class: 's-st', text: `✓ Concluída${x.t ? ' · ' + horaCurta(x.t) : ''}` })));
+      } else {
+        const agora = k === e.feitas.length && s.fase !== 'completo';
+        ol.append(h('li', { class: agora ? 'agora' : '' },
+          h('span', { class: 's-n', text: `Série ${k + 1}` }),
+          h('span', { class: 's-v', text: `prevista ${e.reps} reps` }),
+          h('span', { class: 's-st', text: agora ? (s.fase === 'descanso' ? 'a seguir' : 'em andamento') : 'pendente' })));
+      }
+    }
+    $('mObs').textContent = [e.obs, e.nota ? `Hoje: ${e.nota}` : ''].filter(Boolean).join(' · ');
+    $('mNota').textContent = e.nota ? '📝 Editar observação de hoje' : '📝 Adicionar observação';
 
     const bol = $('mBolinhas');
     bol.innerHTML = '';
     for (let k = 0; k < e.series; k++) {
-      const d = document.createElement('div');
-      d.className = 'bolinha' + (k < e.feitas.length ? ' feita' : (k === e.feitas.length && s.fase !== 'completo' ? ' atual' : ''));
-      d.textContent = k < e.feitas.length ? '✓' : String(k + 1);
-      bol.appendChild(d);
+      bol.append(h('div', {
+        class: 'bolinha' + (k < e.feitas.length ? ' feita' : (k === e.feitas.length && s.fase !== 'completo' ? ' atual' : '')),
+        text: k < e.feitas.length ? '✓' : String(k + 1),
+      }));
     }
 
-    $('mFase').className = 'fase ' + s.fase;
+    $('mFase').className = 'fase ' + s.fase + (s.pausa != null ? ' pausado' : '');
     const acao = $('mAcao');
-    const numSerie = i + 1;
     const ent = s.fase !== 'completo' && !feito(e) ? entradaAtual() : null;
     $('mEntrada').hidden = !ent;
+    $('inKgRotulo').textContent = ROTULO_CARGA[tipo];
     if (ent) {
       if (document.activeElement !== $('inReps')) $('inReps').value = ent.reps;
       if (document.activeElement !== $('inKg')) $('inKg').value = ent.kg;
     }
     if (s.fase === 'serie' && !feito(e)) {
-      $('mRotulo').textContent = `Série ${numSerie} de ${e.series}`;
-      $('mProx').textContent = '';
+      $('mRotulo').textContent = `Série ${i + 1} de ${e.series}`;
+      $('mProx').textContent = `prevista: ${e.reps} reps`;
       acao.textContent = '✓ Concluir série';
       acao.className = 'btn sucesso enorme';
-    } else if (s.fase === 'serie') { // abriu um exercício que já terminou
+    } else if (s.fase === 'serie') {
       $('mRotulo').textContent = 'Exercício feito';
       $('mTempo').textContent = '✓';
-      $('mProx').textContent = 'Toque em “Desfazer série” para corrigir';
+      $('mProx').textContent = 'Toque numa série para corrigir';
       acao.textContent = 'Ir para o próximo ▶';
       acao.className = 'btn primario enorme';
     } else if (s.fase === 'descanso') {
-      $('mRotulo').textContent = 'Descanso';
-      $('mProx').textContent = idx === s.ex
-        ? `A seguir: série ${numSerie} de ${e.series}`
-        : `A seguir: ${e.nome} — série 1`;
+      $('mRotulo').textContent = s.pausa != null ? 'Descanso (pausado)' : 'Descanso';
+      $('mProx').textContent = idx === s.ex ? `A seguir: série ${i + 1} de ${e.series}` : `A seguir: ${e.nome} — série 1`;
       acao.textContent = 'Pular descanso ⏭';
       acao.className = 'btn primario enorme';
     } else {
+      const feitas = t.exercicios.reduce((a, x) => a + x.feitas.length, 0);
+      const plan = t.exercicios.reduce((a, x) => a + x.series, 0);
+      const vol = t.exercicios.reduce((a, x) => a + volume(x.feitas), 0);
       $('mRotulo').textContent = 'Treino completo!';
       $('mTempo').textContent = '💪 Mandou bem';
-      $('mProx').textContent = `Tempo total: ${mmss(((s.fimTreino || Date.now()) - s.inicio) / 1000)}`;
-      acao.textContent = '✓ Concluir treino';
+      $('mProx').textContent = `${mmss(((s.fimTreino || Date.now()) - s.inicio) / 1000)} · ${feitas}/${plan} séries · ${fmtKg(Math.round(vol))} kg de volume`;
+      acao.textContent = '✓ Finalizar e salvar treino';
       acao.className = 'btn sucesso enorme';
     }
-    const descansando = s.fase === 'descanso';
-    $('mMais15').hidden = !descansando;
-    $('mMenos15').hidden = !descansando;
-    $('mDesfazer').hidden = descansando;
+    const desc = s.fase === 'descanso';
+    ['mMenos15', 'mPausar', 'mReiniciar', 'mMais15'].forEach((id) => { $(id).hidden = !desc; });
+    ['mAnterior', 'mDesfazer', 'mProximo'].forEach((id) => { $(id).hidden = desc; });
+    $('mDescansar').hidden = desc || s.fase === 'completo';
+    $('mPausar').textContent = s.pausa != null ? '▶ Retomar' : '⏸ Pausar';
     $('mDesfazer').disabled = t.exercicios[s.ex].feitas.length === 0;
-    $('mAnterior').disabled = descansando || s.ex === 0;
-    $('mProximo').disabled = descansando || s.ex >= t.exercicios.length - 1;
+    $('mAnterior').disabled = s.ex === 0;
+    $('mProximo').disabled = s.ex >= t.exercicios.length - 1;
     atualizarTempos();
   }
 
-  // --- steppers de repetições e peso ---
+  function renderSeletorVariacao(box, e) {
+    box.innerHTML = '';
+    if (!temVariacoes(e)) return;
+    const sel = h('select', { 'aria-label': 'Variação do exercício' });
+    catDe(e).variacoes.forEach((v) => sel.append(h('option', { value: v.id, text: `Variação: ${v.nome}` })));
+    sel.value = variacaoDe(e).id;
+    sel.onchange = () => {
+      e.variacao = sel.value;
+      const s = estado.sessao; if (s) delete s.entrada;
+      salvar(); atualizarTudo(true);
+    };
+    box.append(sel);
+  }
+
+  function renderComo(box, e) {
+    box.innerHTML = '';
+    const v = variacaoDe(e);
+    if (!v || !v.instrucoes) {
+      box.append(h('p', { class: 'nota-peq', text: 'Instruções não cadastradas para este exercício. Use o vídeo como referência e, na dúvida, peça orientação ao professor da academia.' }));
+      return;
+    }
+    const titulos = ['Posição inicial', 'Movimento', 'Descida / retorno', 'Erros comuns', 'Postura e amplitude'];
+    box.append(h('ol', { class: 'passos' }, v.instrucoes.map((txt, k) => h('li', {}, h('b', { text: titulos[k] }), txt))));
+    box.append(h('p', { class: 'nota-peq', text: 'Orientações gerais de execução. Em caso de dor ou dúvida, ajuste com um profissional de educação física.' }));
+  }
+
+  // --- steppers ---
   document.querySelectorAll('.stepper button').forEach((b) => {
     b.onclick = () => {
       const ent = entradaAtual();
       const campo = b.dataset.campo;
-      const passo = Number(b.dataset.passo);
-      ent[campo] = Math.max(0, Math.round((num(ent[campo]) + passo) * 10) / 10);
+      ent[campo] = Math.max(0, Math.round((num(ent[campo]) + Number(b.dataset.passo)) * 10) / 10);
       salvar(); renderModo();
     };
   });
@@ -648,108 +973,190 @@
       salvar();
     });
     $(id).addEventListener('focus', (ev) => ev.target.select());
-    $(id).addEventListener('blur', () => renderModo());
+    $(id).addEventListener('blur', () => { if (modoAberto()) renderModo(); });
   });
-
-  // --- vídeo / animação de como fazer ---
-  function idYoutube(url) {
-    const m = url.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/|\/live\/)([\w-]{11})/);
-    return m ? m[1] : null;
-  }
-
-  function renderMidia(box, e) {
-    box.innerHTML = '';
-    const url = e.video;
-    const yt = url && idYoutube(url);
-    if (yt) {
-      const f = document.createElement('iframe');
-      f.src = `https://www.youtube-nocookie.com/embed/${yt}?rel=0&playsinline=1&modestbranding=1`;
-      f.title = `Como fazer: ${e.nome}`;
-      f.allow = 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture';
-      f.allowFullscreen = true;
-      box.appendChild(f);
-    } else if (url && /^https?:\/\/.+\.(mp4|webm|mov)(\?|#|$)/i.test(url)) {
-      const v = document.createElement('video');
-      Object.assign(v, { src: url, autoplay: true, muted: true, loop: true, playsInline: true, controls: true });
-      box.appendChild(v);
-    } else if (url && /^https?:\/\//i.test(url)) {
-      const img = document.createElement('img');
-      img.src = url; img.alt = `Como fazer: ${e.nome}`;
-      img.onerror = () => { box.innerHTML = ''; box.appendChild(semVideo(e, url)); };
-      box.appendChild(img);
-    } else {
-      box.appendChild(semVideo(e));
-    }
-  }
-
-  function semVideo(e, linkQuebrado) {
-    const d = document.createElement('div');
-    d.className = 'sem-video';
-    d.innerHTML = `
-      <svg viewBox="0 0 120 72" aria-hidden="true">
-        <g fill="#ff7a1a">
-          <rect x="22" y="20" width="8" height="32" rx="3"/><rect x="90" y="20" width="8" height="32" rx="3"/>
-          <rect x="14" y="27" width="8" height="18" rx="3"/><rect x="98" y="27" width="8" height="18" rx="3"/>
-          <rect x="30" y="33" width="60" height="6" rx="3"/>
-          <animateTransform attributeName="transform" type="translate" values="0 14; 0 -8; 0 14"
-            dur="2.2s" repeatCount="indefinite" calcMode="spline" keySplines=".45 0 .55 1; .45 0 .55 1"/>
-        </g>
-      </svg>`;
-    const a = document.createElement('a');
-    a.className = 'btn primario pequeno';
-    a.href = linkQuebrado || `https://www.youtube.com/results?search_query=${encodeURIComponent('como fazer ' + e.nome + ' execução correta')}`;
-    a.target = '_blank'; a.rel = 'noopener';
-    a.textContent = linkQuebrado ? 'Abrir vídeo' : '▶ Ver como fazer no YouTube';
-    const p = document.createElement('p');
-    p.textContent = 'Toque em ✎ e cole o link de um vídeo para ele aparecer aqui.';
-    d.append(a, p);
-    return d;
-  }
 
   // --- botões da tela de treino ---
   $('mFechar').onclick = fecharModo;
   $('mEditar').onclick = () => abrirForm(exibido().e.id);
   $('mStats').onclick = () => abrirDetalhes(exibido().e.id);
+  $('mNota').onclick = () => {
+    const e = exibido().e;
+    const r = prompt('Observação para este exercício hoje (aparece no histórico):', e.nota || '');
+    if (r == null) return;
+    e.nota = r.trim().slice(0, 200);
+    salvar(); renderModo();
+  };
   $('mAcao').onclick = () => {
     const s = sessaoDoAtual();
     if (!s) return;
     destravarAudio();
     if (s.fase === 'serie') terminarSerie();
-    else if (s.fase === 'descanso') {
-      const ent = s.entrada;
-      irPara(s.prox);
-      if (ent) s.entrada = ent;
-      salvar(); renderModo();
-    } else concluirTreino();
+    else if (s.fase === 'descanso') { fimDoDescanso(); salvar(); renderModo(); }
+    else concluirTreino();
   };
   const ajustarDescanso = (ms) => {
     const s = sessaoDoAtual();
-    if (s && s.fase === 'descanso') { s.fim = Math.max(Date.now(), s.fim + ms); salvar(); tickModo(); }
+    if (!s || s.fase !== 'descanso') return;
+    if (s.pausa != null) s.pausa = Math.max(0, s.pausa + ms);
+    else s.fim = Math.max(Date.now(), s.fim + ms);
+    salvar(); tickModo();
   };
   $('mMais15').onclick = () => ajustarDescanso(15000);
   $('mMenos15').onclick = () => ajustarDescanso(-15000);
+  $('mPausar').onclick = () => {
+    const s = sessaoDoAtual();
+    if (!s || s.fase !== 'descanso') return;
+    if (s.pausa != null) { s.fim = Date.now() + s.pausa; delete s.pausa; }
+    else s.pausa = Math.max(0, s.fim - Date.now());
+    salvar(); renderModo();
+  };
+  $('mReiniciar').onclick = () => {
+    const s = sessaoDoAtual();
+    if (!s || s.fase !== 'descanso') return;
+    s.fim = Date.now() + (s.descansoTotal || 60) * 1000; delete s.pausa;
+    salvar(); renderModo();
+  };
+  $('mDescansar').onclick = () => {
+    const s = sessaoDoAtual();
+    const e = treinoAtual().exercicios[s.ex];
+    const ent = s.entrada;
+    iniciarDescanso(e.descanso || 60, s.ex);
+    if (ent) s.entrada = ent;
+    salvar(); renderModo();
+  };
   $('mDesfazer').onclick = () => {
     const s = sessaoDoAtual();
     const e = treinoAtual().exercicios[s.ex];
     const ultima = e.feitas.pop();
     s.fase = 'serie'; s.desde = Date.now(); delete s.fimTreino;
-    s.entrada = ultima ? { chave: `${e.id}:${e.feitas.length}`, ...ultima } : undefined;
-    salvar(); renderModo(); renderTreino();
+    if (ultima) s.entrada = { chave: `${e.id}:${e.variacao}:${e.feitas.length}`, reps: ultima.reps, kg: ultima.kg };
+    salvar(); renderModo();
   };
-  $('mAnterior').onclick = () => { irPara(sessaoDoAtual().ex - 1); salvar(); renderModo(); };
-  $('mProximo').onclick = () => { irPara(sessaoDoAtual().ex + 1); salvar(); renderModo(); };
+  $('mAnterior').onclick = () => { irExercicio(sessaoDoAtual().ex - 1); salvar(); renderModo(); };
+  $('mProximo').onclick = () => { irExercicio(sessaoDoAtual().ex + 1); salvar(); renderModo(); };
 
-  // ---------- Detalhes do exercício: Resumo / Histórico / Como fazer ----------
+  // --- editar uma série já registrada (no treino de hoje ou no histórico) ---
+  let serieCtx = null;
+  function editarSerie(lista, k, e) {
+    serieCtx = { lista, k };
+    const f = $('formSerie');
+    $('dsTitulo').textContent = `${e.nome} — série ${k + 1}`;
+    $('dsKgRotulo').firstChild.textContent = `${ROTULO_CARGA[tipoCargaDe(e)]} `;
+    f.kg.value = lista[k].kg; f.reps.value = lista[k].reps;
+    $('dlgSerie').showModal();
+  }
+  $('formSerie').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    const { lista, k } = serieCtx;
+    lista[k] = { ...lista[k], kg: Math.max(0, num(f.kg.value)), reps: Math.max(0, Math.round(num(f.reps.value))) };
+    salvar(); $('dlgSerie').close(); atualizarTudo(false);
+  });
+  $('dsExcluir').onclick = () => {
+    if (!confirm('Excluir esta série?')) return;
+    serieCtx.lista.splice(serieCtx.k, 1);
+    salvar(); $('dlgSerie').close(); atualizarTudo(false);
+  };
+  $('dsCancelar').onclick = () => $('dlgSerie').close();
+
+  // ---------- Player de demonstração ----------
+  function idYoutube(url) {
+    const m = String(url).match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/|\/live\/)([\w-]{11})/);
+    return m ? m[1] : null;
+  }
+
+  function demoDe(e) {
+    if (e.video) {
+      const y = idYoutube(e.video);
+      if (y) return { tipo: 'youtube', id: y, titulo: 'Vídeo escolhido por você', autor: '', status: 'usuario' };
+      if (/^https?:\/\/.+\.(mp4|webm|mov)(\?|#|$)/i.test(e.video)) return { tipo: 'video', url: e.video, status: 'usuario' };
+      if (/^https?:\/\//i.test(e.video)) return { tipo: 'imagem', url: e.video, status: 'usuario' };
+    }
+    const v = variacaoDe(e);
+    return v && v.demo && v.demo.tipo !== 'indisponivel' ? v.demo : null;
+  }
+
+  // Vídeos do catálogo que o usuário já assistiu e confirmou (por variação + vídeo)
+  const chaveVideo = (e) => { const d = demoDe(e); return `${variacaoDe(e) ? variacaoDe(e).id : ''}:${d && d.id ? d.id : ''}`; };
+  const conferido = (e) => (e.conferidos || []).includes(chaveVideo(e));
+
+  const podeTelaCheia = () => !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  function telaCheia(el) {
+    const f = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (f) f.call(el);
+  }
+
+  function renderMidia(box, e) {
+    box.innerHTML = '';
+    const v = variacaoDe(e);
+    const nomeEx = v ? v.nome : e.nome;
+    const demo = demoDe(e);
+    const midia = h('div', { class: 'midia' });
+    const fonte = h('div', { class: 'fonte' });
+    box.append(midia, fonte);
+    const buscar = `https://www.youtube.com/results?search_query=${encodeURIComponent('como fazer ' + nomeEx + ' execução correta')}`;
+
+    const indisponivel = (motivo) => {
+      midia.innerHTML = '';
+      midia.append(h('div', { class: 'sem-video' },
+        h('b', { text: 'Demonstração indisponível' }),
+        h('p', { text: motivo }),
+        h('div', { class: 'linha-btns' },
+          h('a', { class: 'btn primario pequeno', href: buscar, target: '_blank', rel: 'noopener', text: 'Buscar no YouTube' }),
+          h('button', { class: 'btn leve pequeno', text: 'Adicionar vídeo', onclick: () => abrirForm(e.id, true) }))));
+    };
+
+    if (!demo) {
+      indisponivel('Nenhum vídeo cadastrado para esta variação.');
+      fonte.append(h('span', { text: nomeEx }));
+      return;
+    }
+
+    if (demo.tipo === 'youtube') {
+      const capa = h('button', { class: 'capa', 'aria-label': `Reproduzir demonstração: ${nomeEx}` },
+        h('img', { src: `https://i.ytimg.com/vi/${demo.id}/hqdefault.jpg`, alt: '', loading: 'lazy' }),
+        h('span', { class: 'play', text: '▶' }),
+        h('span', { class: 'capa-nome', text: nomeEx }));
+      capa.querySelector('img').onerror = () => indisponivel('Não foi possível carregar este vídeo (sem internet, removido ou indisponível).');
+      capa.onclick = () => { // só carrega o player quando você toca (economiza dados)
+        midia.innerHTML = '';
+        midia.append(h('iframe', {
+          src: `https://www.youtube-nocookie.com/embed/${demo.id}?autoplay=1&rel=0&playsinline=1&modestbranding=1`,
+          title: `Como fazer: ${nomeEx}`,
+          allow: 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen',
+          allowfullscreen: true,
+        }));
+        if (podeTelaCheia()) midia.append(h('button', { class: 'tela-cheia', text: '⛶', 'aria-label': 'Tela cheia', onclick: () => telaCheia(midia) }));
+      };
+      midia.append(capa);
+      fonte.append(
+        h('span', { text: `Fonte: YouTube${demo.autor ? ' · ' + demo.autor : ''} · “${demo.titulo || nomeEx}”` }),
+        demo.status === 'nao-verificado' && !conferido(e)
+          ? h('span', { class: 'aviso-fonte', text: '⚠ Vídeo encontrado por busca, ainda não conferido. Veja se mostra exatamente esta variação.' }) : null,
+        demo.status === 'nao-verificado' && conferido(e) ? h('span', { class: 'aviso-fonte', text: '✓ Você conferiu este vídeo.' }) : null,
+        h('a', { href: `https://www.youtube.com/watch?v=${demo.id}`, target: '_blank', rel: 'noopener', text: 'Abrir no YouTube ↗' }),
+        h('button', { text: 'Trocar vídeo', onclick: () => abrirForm(e.id, true) }),
+        demo.status === 'nao-verificado' && !conferido(e)
+          ? h('button', { text: '✓ Vídeo correto', onclick: () => { e.conferidos = [...new Set([...(e.conferidos || []), chaveVideo(e)])]; salvar(); atualizarTudo(true); } }) : null,
+      );
+      return;
+    }
+    if (demo.tipo === 'video') {
+      const vid = h('video', { src: demo.url, controls: true, playsinline: true, preload: 'metadata' });
+      vid.onerror = () => indisponivel('Não foi possível carregar este vídeo.');
+      midia.append(vid);
+    } else {
+      const img = h('img', { src: demo.url, alt: `Como fazer: ${nomeEx}` });
+      img.onerror = () => indisponivel('Não foi possível carregar esta demonstração.');
+      midia.append(img);
+    }
+    fonte.append(h('span', { text: `Fonte: ${demo.url}` }), h('button', { text: 'Trocar vídeo', onclick: () => abrirForm(e.id, true) }));
+  }
+
+  // ---------- Detalhes do exercício ----------
   let detId = null;
   let detAba = 'resumo';
-
-  function acharExercicio(id) {
-    for (const t of estado.treinos) {
-      const e = t.exercicios.find((x) => x.id === id);
-      if (e) return e;
-    }
-    return null;
-  }
 
   function abrirDetalhes(id, aba = 'resumo') {
     detId = id; detAba = aba;
@@ -771,220 +1178,409 @@
     const sess = sessoesDe(e);
     const todas = sess.flatMap((s) => s.series);
     if (!todas.length) return null;
-    const melhor1RMSessao = (s) => Math.max(0, ...s.series.map(umRM));
+    const melhor1RM = (s) => Math.max(0, ...s.series.map(umRM));
     let recorde = 0; let dataRecorde = null;
-    sess.forEach((s) => { const v = melhor1RMSessao(s); if (v > recorde) { recorde = v; dataRecorde = s.data; } });
+    sess.forEach((s) => { const v = melhor1RM(s); if (v > recorde) { recorde = v; dataRecorde = s.data; } });
     const melhorSerie = todas.reduce((a, b) => (umRM(b) > umRM(a) || (umRM(b) === umRM(a) && b.kg > a.kg) ? b : a));
     const vols = sess.map((s) => volume(s.series));
+    const ult = sess[sess.length - 1];
     return {
       pesoMax: Math.max(...todas.map((s) => s.kg)),
       recorde, dataRecorde,
-      evolucao: sess.length > 1 ? { de: melhor1RMSessao(sess[0]), para: melhor1RMSessao(sess[sess.length - 1]) } : null,
-      melhorSerie,
+      evolucao: sess.length > 1 ? { de: melhor1RM(sess[0]), para: melhor1RM(ult) } : null,
+      melhorSerie, ult,
       melhorVolume: Math.max(...vols),
       volumeTotal: vols.reduce((a, b) => a + b, 0),
-      ultima: sess[sess.length - 1].data,
-      sessoes: sess.length,
-      series: todas.length,
+      sessoes: sess.length, series: todas.length,
       reps: todas.reduce((t, s) => t + s.reps, 0),
     };
   }
 
   function cartao(linhas) {
-    const c = document.createElement('div');
-    c.className = 'cartao';
-    linhas.forEach(([rot, val, sub]) => {
-      const l = document.createElement('div');
-      l.className = 'linha-stat';
-      const a = document.createElement('span'); a.textContent = rot;
-      const b = document.createElement('b'); b.textContent = val;
-      if (sub) { const sm = document.createElement('small'); sm.textContent = sub; b.appendChild(sm); }
-      l.append(a, b);
-      c.appendChild(l);
-    });
-    return c;
+    return h('div', { class: 'cartao' }, linhas.map(([rot, val, sub]) =>
+      h('div', { class: 'linha-stat' }, h('span', { text: rot }), h('b', {}, val, sub ? h('small', { text: sub }) : null))));
   }
-  const titulo3 = (txt) => { const h = document.createElement('h3'); h.textContent = txt; return h; };
+  const titulo3 = (txt) => h('h3', { text: txt });
 
   function renderDetalhes() {
-    const e = acharExercicio(detId);
-    if (!e) { fecharDetalhes(); return; }
+    const achado = acharExercicio(detId);
+    if (!achado) { fecharDetalhes(); return; }
+    const e = achado.e;
     $('dNome').textContent = e.nome;
-    $('dSub').textContent = descricao(e);
+    $('dSub').textContent = `${rotulo(achado.ti)} · ${e.series} × ${e.reps}${temVariacoes(e) ? ' · ' + variacaoDe(e).nome : ''}`;
     document.querySelectorAll('.det-abas button').forEach((b) => b.classList.toggle('ativa', b.dataset.aba === detAba));
     const corpo = $('dCorpo');
     corpo.innerHTML = '';
     corpo.scrollTop = 0;
+    const selVar = h('div', { class: 'variacao' });
+    renderSeletorVariacao(selVar, e);
+    if (temVariacoes(e)) corpo.append(selVar);
 
     if (detAba === 'como') {
-      const m = document.createElement('div');
-      m.className = 'midia';
-      corpo.appendChild(m);
-      renderMidia(m, e);
-      corpo.appendChild(titulo3('Como fazer'));
-      corpo.appendChild(cartao([
+      const p = h('div', { class: 'player' });
+      corpo.append(p);
+      renderMidia(p, e);
+      corpo.append(titulo3('COMO EXECUTAR CORRETAMENTE'));
+      const como = h('div', {});
+      renderComo(como, e);
+      corpo.append(como, titulo3('Na ficha'), cartao([
         ['Séries × repetições', `${e.series} × ${e.reps || '-'}`],
-        ['Descanso', e.descanso ? `${e.descanso}s` : '—'],
-        ['Carga planejada', e.carga !== '' ? `${fmtKg(e.carga)} kg` : '—'],
+        ['Descanso', e.descanso ? `${e.descanso}s${e.descansoFaixa ? ' (' + e.descansoFaixa + ')' : ''}` : '—'],
+        ['Registro da carga', ROTULO_CARGA[tipoCargaDe(e)]],
       ]));
-      if (e.obs) {
-        corpo.appendChild(titulo3('Observações'));
-        const p = document.createElement('p'); p.className = 'como-texto'; p.textContent = e.obs;
-        corpo.appendChild(p);
-      }
+      if (e.obs) corpo.append(titulo3('Observações'), h('p', { class: 'como-texto', text: e.obs }));
       return;
     }
 
     const st = estatisticas(e);
     if (!st) {
-      const v = document.createElement('p');
-      v.className = 'vazio-det';
-      v.textContent = 'Ainda não há registros. Faça o exercício na tela de treino e toque em “Concluir treino” — o resumo e o histórico aparecem aqui.';
-      corpo.appendChild(v);
+      corpo.append(h('p', { class: 'vazio-det', text: 'Ainda não há registros. Faça o exercício na tela de treino e finalize o treino: o resumo e o histórico aparecem aqui.' }));
       return;
     }
 
     if (detAba === 'resumo') {
-      let evo = ['Evolução', '—', 'precisa de 2 treinos ou mais'];
+      let evo = ['Evolução (1RM estimado)', '—', 'precisa de 2 treinos ou mais'];
       if (st.evolucao) {
         const d = st.evolucao.para - st.evolucao.de;
         const pct = st.evolucao.de ? Math.round((d / st.evolucao.de) * 100) : 0;
-        evo = ['Evolução', `${d >= 0 ? '+' : '−'}${fmtKg(Math.abs(d))} kg (${pct >= 0 ? '+' : ''}${pct}%)`, '1RM do primeiro ao último treino'];
+        evo = ['Evolução (1RM estimado)', `${d >= 0 ? '+' : '−'}${fmtKg(Math.abs(d))} kg (${pct >= 0 ? '+' : ''}${pct}%)`, 'do primeiro ao último treino'];
       }
+      const ultTop = st.ult.series.reduce((a, b) => (b.kg > a.kg ? b : a));
+      const prog = progressao(e);
       corpo.append(
+        prog ? h('div', { class: 'aviso-prog' }, h('b', { text: '💡 Sugestão de progressão: ' }), `você atingiu ${prog.topo} reps em todas as séries. Se a execução foi boa, ${prog.texto}.`) : '',
+        titulo3('Último treino'),
+        cartao([
+          ['Carga utilizada', `${fmtKg(ultTop.kg)} ${SUFIXO_CARGA[tipoCargaDe(e)]}`, haQuanto(st.ult.data)],
+          ['Repetições', st.ult.series.map((s) => s.reps).join(' · ')],
+          ['Volume', `${fmtKg(volume(st.ult.series))} kg`],
+        ]),
         titulo3('Recordes pessoais'),
         cartao([
-          ['Peso máximo', `${fmtKg(st.pesoMax)} kg`],
+          ['Melhor carga', `${fmtKg(st.pesoMax)} kg`],
           ['Melhor 1RM (estimado)', st.recorde ? `${fmtKg(st.recorde)} kg` : '—'],
           evo,
           ['Último recorde', st.dataRecorde ? haQuanto(st.dataRecorde) : '—'],
+          ['Melhor série', `${fmtKg(st.melhorSerie.kg)} kg × ${st.melhorSerie.reps} reps`],
         ]),
-        titulo3('Força'),
-        cartao([['Melhor série', `${fmtKg(st.melhorSerie.kg)} kg × ${st.melhorSerie.reps} reps`]]),
-        titulo3('Volume'),
+        titulo3('Volume (séries × repetições × carga)'),
         cartao([
           ['Melhor volume num treino', `${fmtKg(st.melhorVolume)} kg`],
           ['Volume total', `${fmtKg(st.volumeTotal)} kg`],
         ]),
         titulo3('Frequência'),
         cartao([
-          ['Última execução', haQuanto(st.ultima)],
           ['Total de treinos', String(st.sessoes)],
           ['Total de séries', String(st.series)],
           ['Total de repetições', String(st.reps)],
         ]),
-        titulo3('Evolução — maior peso por treino'),
-        grafico(sessoesDe(e)),
+        titulo3('Evolução — maior carga por treino'),
+        grafico(sessoesDe(e).map((s) => ({ data: s.data, v: Math.max(0, ...s.series.map((x) => x.kg)) })), 'kg', 'Maior carga por treino'),
       );
       return;
     }
 
     // Histórico
     sessoesDe(e).slice().reverse().forEach((s) => {
-      const box = document.createElement('div');
-      box.className = 'sessao';
-      const topo = document.createElement('div');
-      topo.className = 'sessao-topo';
-      const b = document.createElement('b');
-      b.textContent = `${dataCurta(s.data)} · ${haQuanto(s.data)}`;
-      const del = document.createElement('button');
-      del.className = 'link-perigo';
-      del.textContent = 'Apagar';
-      del.onclick = () => {
-        if (!confirm('Apagar este registro do histórico?')) return;
-        const l = estado.log[e.id];
-        l.splice(l.indexOf(s), 1);
-        salvar(); renderDetalhes(); renderTreino();
-      };
-      topo.append(b, del);
-      const ol = document.createElement('ol');
-      s.series.forEach((x) => { const li = document.createElement('li'); li.textContent = `${fmtKg(x.kg)} kg × ${x.reps} reps`; ol.appendChild(li); });
-      const v = document.createElement('div');
-      v.className = 'vol';
-      v.textContent = `Volume: ${fmtKg(volume(s.series))} kg`;
-      box.append(topo, ol, v);
-      corpo.appendChild(box);
+      corpo.append(h('div', { class: 'sessao' },
+        h('div', { class: 'sessao-topo' },
+          h('b', { text: `${dataCurta(s.data)} · ${horaCurta(s.data)} · ${haQuanto(s.data)}` }),
+          h('button', {
+            class: 'link-perigo', text: 'Apagar',
+            onclick: () => {
+              if (!confirm('Apagar este registro do histórico?')) return;
+              const l = estado.log[e.id];
+              l.splice(l.indexOf(s), 1);
+              salvar(); renderDetalhes(); renderVista();
+            },
+          })),
+        s.variacaoNome ? h('div', { class: 'nota-peq', text: s.variacaoNome }) : null,
+        h('ol', {}, s.series.map((x, k) => h('li', { title: 'Toque para editar', onclick: () => editarSerie(s.series, k, e) },
+          h('span', { text: `Série ${k + 1} — ${fmtKg(x.kg)} ${SUFIXO_CARGA[tipoCargaDe(e)]} — ${x.reps} reps` }),
+          h('span', { text: x.t ? horaCurta(x.t) : '' })))),
+        s.obs ? h('p', { class: 'obs', text: s.obs }) : null,
+        h('div', { class: 'vol', text: `Volume: ${fmtKg(volume(s.series))} kg` })));
     });
   }
 
-  // Gráfico de linha simples (maior peso de cada treino), com toque para ver o valor.
-  function grafico(sess) {
-    const wrap = document.createElement('div');
-    wrap.className = 'grafico';
-    const pts = sess.map((s) => ({ data: s.data, v: Math.max(0, ...s.series.map((x) => x.kg)) }));
+  // ---------- Gráfico de linha (uma série, eixo de tempo, toque para ver valores) ----------
+  function grafico(pontos, unidade, rotuloAria) {
+    const wrap = h('div', { class: 'grafico' });
+    const pts = pontos.filter((p) => p.v !== '' && p.v != null && Number.isFinite(Number(p.v))).map((p) => ({ data: p.data, v: Number(p.v) }))
+      .sort((a, b) => diaLocal(a.data) - diaLocal(b.data) || (a.data > b.data ? 1 : -1));
     if (pts.length < 2) {
-      const p = document.createElement('p');
-      p.className = 'legenda-graf';
-      p.textContent = 'O gráfico aparece a partir do 2º treino com este exercício.';
-      wrap.appendChild(p);
+      wrap.style.paddingTop = '0';
+      wrap.append(h('p', { class: 'legenda-graf', text: 'O gráfico aparece a partir do 2º registro.' }));
       return wrap;
     }
-    const W = 340, H = 170, ml = 34, mr = 12, mt = 26, mb = 24;
-    const max = Math.max(...pts.map((p) => p.v));
-    const min = Math.min(...pts.map((p) => p.v));
-    const lo = Math.max(0, Math.floor((min - (max - min) * 0.2 - 1)));
-    const hi = Math.ceil(max + (max - min) * 0.1 + 1);
-    const x = (i) => ml + (i * (W - ml - mr)) / (pts.length - 1);
-    const y = (v) => mt + (1 - (v - lo) / (hi - lo)) * (H - mt - mb);
+    const W = 340, H = 170, ml = 36, mr = 14, mt = 26, mb = 24;
+    const vals = pts.map((p) => p.v);
+    const max = Math.max(...vals), min = Math.min(...vals);
+    const folga = Math.max((max - min) * 0.2, max * 0.02, 1);
+    const lo = Math.max(0, Math.floor(min - folga));
+    const hi = Math.ceil(max + folga / 2);
+    const t0 = new Date(pts[0].data).getTime();
+    const t1 = new Date(pts[pts.length - 1].data).getTime();
+    const x = (i) => ml + (t1 > t0 ? (new Date(pts[i].data).getTime() - t0) / (t1 - t0) : i / (pts.length - 1)) * (W - ml - mr);
+    const y = (v) => mt + (1 - (v - lo) / (hi - lo || 1)) * (H - mt - mb);
     const ns = 'http://www.w3.org/2000/svg';
     const el = (tag, attrs) => { const n = document.createElementNS(ns, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; };
-    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Maior peso por treino' });
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': rotuloAria });
     [lo, (lo + hi) / 2, hi].forEach((v) => {
-      svg.appendChild(el('line', { x1: ml, x2: W - mr, y1: y(v), y2: y(v), stroke: '#2a313b', 'stroke-width': 1 }));
-      const t = el('text', { x: ml - 6, y: y(v) + 4, 'text-anchor': 'end', fill: '#8b95a3', 'font-size': 10 });
-      t.textContent = fmtKg(Math.round(v));
-      svg.appendChild(t);
+      svg.append(el('line', { x1: ml, x2: W - mr, y1: y(v), y2: y(v), stroke: '#2a2f37', 'stroke-width': 1 }));
+      const t = el('text', { x: ml - 6, y: y(v) + 4, 'text-anchor': 'end', fill: '#9aa1ab', 'font-size': 10 });
+      t.textContent = fmtNum(v, 1);
+      svg.append(t);
     });
     [0, pts.length - 1].forEach((i) => {
-      const t = el('text', { x: x(i), y: H - 6, 'text-anchor': i ? 'end' : 'start', fill: '#8b95a3', 'font-size': 10 });
-      t.textContent = new Date(pts[i].data).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-      svg.appendChild(t);
+      const t = el('text', { x: x(i), y: H - 6, 'text-anchor': i ? 'end' : 'start', fill: '#9aa1ab', 'font-size': 10 });
+      t.textContent = diaLocal(pts[i].data).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      svg.append(t);
     });
-    svg.appendChild(el('polyline', {
+    svg.append(el('polyline', {
       points: pts.map((p, i) => `${x(i)},${y(p.v)}`).join(' '),
       fill: 'none', stroke: COR_GRAFICO, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
     }));
-    const guia = el('line', { y1: mt - 6, y2: H - mb, stroke: '#8b95a3', 'stroke-width': 1, visibility: 'hidden' });
-    svg.appendChild(guia);
-    const pontos = pts.map((p, i) => {
-      const c = el('circle', { cx: x(i), cy: y(p.v), r: 4, fill: COR_GRAFICO, stroke: '#111418', 'stroke-width': 2 });
-      svg.appendChild(c);
-      return c;
-    });
-    // rótulo direto só no último ponto
-    const ult = el('text', { x: x(pts.length - 1), y: y(pts[pts.length - 1].v) - 10, 'text-anchor': 'end', fill: '#e9edf2', 'font-size': 11, 'font-weight': 700 });
-    ult.textContent = `${fmtKg(pts[pts.length - 1].v)} kg`;
-    svg.appendChild(ult);
+    const guia = el('line', { y1: mt - 6, y2: H - mb, stroke: '#9aa1ab', 'stroke-width': 1, visibility: 'hidden' });
+    svg.append(guia);
+    const marcas = pts.map((p, i) => { const c = el('circle', { cx: x(i), cy: y(p.v), r: 4, fill: COR_GRAFICO, stroke: '#16191e', 'stroke-width': 2 }); svg.append(c); return c; });
+    const ult = el('text', { x: x(pts.length - 1), y: y(pts[pts.length - 1].v) - 10, 'text-anchor': 'end', fill: '#f3f3f1', 'font-size': 11, 'font-weight': 700 });
+    ult.textContent = `${fmtNum(pts[pts.length - 1].v)} ${unidade}`;
+    svg.append(ult);
 
-    const tip = document.createElement('div');
-    tip.className = 'tip';
-    tip.hidden = true;
+    const tip = h('div', { class: 'tip' }); tip.hidden = true;
     const mostrar = (ev) => {
       const r = svg.getBoundingClientRect();
       const px = ((ev.clientX - r.left) / r.width) * W;
-      let i = Math.round(((px - ml) / (W - ml - mr)) * (pts.length - 1));
-      i = Math.max(0, Math.min(pts.length - 1, i));
+      let i = 0; let melhor = Infinity;
+      pts.forEach((_, k) => { const d = Math.abs(x(k) - px); if (d < melhor) { melhor = d; i = k; } });
       guia.setAttribute('x1', x(i)); guia.setAttribute('x2', x(i)); guia.setAttribute('visibility', 'visible');
-      pontos.forEach((c, k) => c.setAttribute('r', k === i ? 6 : 4));
-      tip.hidden = false;
-      tip.innerHTML = '';
-      const b = document.createElement('b'); b.textContent = `${fmtKg(pts[i].v)} kg`;
-      tip.append(b, ` · ${dataCurta(pts[i].data)}`);
+      marcas.forEach((c, k) => c.setAttribute('r', k === i ? 6 : 4));
+      tip.hidden = false; tip.innerHTML = '';
+      tip.append(h('b', { text: `${fmtNum(pts[i].v)} ${unidade}` }), ` · ${dataCurta(pts[i].data)}`);
       tip.style.left = `${Math.max(15, Math.min(85, (x(i) / W) * 100))}%`;
     };
-    const esconder = () => { tip.hidden = true; guia.setAttribute('visibility', 'hidden'); pontos.forEach((c) => c.setAttribute('r', 4)); };
     svg.addEventListener('pointermove', mostrar);
     svg.addEventListener('pointerdown', mostrar);
-    svg.addEventListener('pointerleave', esconder);
+    svg.addEventListener('pointerleave', () => { tip.hidden = true; guia.setAttribute('visibility', 'hidden'); marcas.forEach((c) => c.setAttribute('r', 4)); });
     wrap.append(svg, tip);
-    const leg = document.createElement('p');
-    leg.className = 'legenda-graf';
-    leg.textContent = 'Toque no gráfico para ver o valor de cada treino. A lista completa está na aba Histórico.';
-    wrap.appendChild(leg);
     return wrap;
   }
 
-  // --- aviso de fim do descanso: bip + vibração + tela piscando ---
+  // ---------- Evolução corporal ----------
+  const fotosDB = (() => {
+    let dbp = null;
+    const abrir = () => {
+      if (!dbp) {
+        dbp = new Promise((ok, erro) => {
+          const r = indexedDB.open('projeto-v-fotos', 1);
+          r.onupgradeneeded = () => r.result.createObjectStore('fotos');
+          r.onsuccess = () => ok(r.result);
+          r.onerror = () => erro(r.error);
+        });
+      }
+      return dbp;
+    };
+    const tx = async (modo, fn) => {
+      const db = await abrir();
+      return new Promise((ok, erro) => {
+        const t = db.transaction('fotos', modo);
+        const req = fn(t.objectStore('fotos'));
+        t.oncomplete = () => ok(req ? req.result : undefined);
+        t.onerror = () => erro(t.error);
+      });
+    };
+    return {
+      put: (k, blob) => tx('readwrite', (s) => s.put(blob, k)),
+      get: (k) => tx('readonly', (s) => s.get(k)),
+      del: (k) => tx('readwrite', (s) => s.delete(k)),
+    };
+  })();
+
+  async function comprimirFoto(arquivo) {
+    const url = URL.createObjectURL(arquivo);
+    try {
+      const img = await new Promise((ok, erro) => { const i = new Image(); i.onload = () => ok(i); i.onerror = erro; i.src = url; });
+      const r = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * r); c.height = Math.round(img.naturalHeight * r);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      return await new Promise((ok) => c.toBlob((b) => ok(b || arquivo), 'image/jpeg', 0.82));
+    } catch (_) { return arquivo; } finally { URL.revokeObjectURL(url); }
+  }
+
+  const avaliacoesOrdenadas = () => estado.avaliacoes.slice().sort((a, b) => diaLocal(a.data) - diaLocal(b.data));
+  const temMedida = (a) => MEDIDAS.some(([k]) => a[k] !== '' && a[k] != null) || Object.keys(a.fotos || {}).length > 0 || !!a.obs;
+
+  function renderEvolucao() {
+    const p = estado.perfil || (PROGRAMA && PROGRAMA.perfil);
+    const per = $('ePerfil');
+    per.innerHTML = '';
+    if (p) {
+      per.append(
+        h('div', {}, h('b', { text: dataLonga(p.inicio).slice(0, 5) }), h('span', { text: `referência ${diaLocal(p.inicio).getFullYear()}` })),
+        h('div', {}, h('b', { text: p.peso !== '' ? `${fmtNum(p.peso)} kg` : '—' }), h('span', { text: 'peso inicial' })),
+        h('div', {}, h('b', { text: p.altura !== '' ? `${fmtNum(p.altura, 0)} cm` : '—' }), h('span', { text: p.idade !== '' ? `altura · ${p.idade} anos` : 'altura' })),
+      );
+    }
+
+    // Marcos 0/15/30/60/90 + extras
+    const box = $('eAvaliacoes');
+    box.innerHTML = '';
+    const inicio = p ? p.inicio : hoje();
+    MARCOS.forEach((m) => {
+      const a = estado.avaliacoes.find((x) => x.marco === m);
+      const prevista = somaDias(inicio, m);
+      box.append(cardAvaliacao(a, `DIA`, String(m), a ? dataLonga(a.data) : `prevista para ${dataLonga(prevista)}`,
+        () => abrirAvaliacao(a ? a.id : null, { marco: m, data: prevista })));
+    });
+    avaliacoesOrdenadas().filter((a) => a.marco == null).forEach((a) => {
+      box.append(cardAvaliacao(a, 'EXTRA', '+', dataLonga(a.data), () => abrirAvaliacao(a.id)));
+    });
+
+    // Comparação
+    const feitas = avaliacoesOrdenadas().filter(temMedida);
+    const selA = $('eCompA'); const selB = $('eCompB');
+    const valA = selA.value; const valB = selB.value;
+    [selA, selB].forEach((s) => { s.innerHTML = ''; feitas.forEach((a) => s.append(h('option', { value: a.id, text: `${a.marco != null ? 'Dia ' + a.marco : 'Extra'} · ${dataLonga(a.data)}` }))); });
+    if (feitas.length) { // padrão: primeira × última; mantém a escolha manual se ainda existir
+      const vale = (v) => compManual && feitas.some((a) => a.id === v);
+      selA.value = vale(valA) ? valA : feitas[0].id;
+      selB.value = vale(valB) ? valB : feitas[feitas.length - 1].id;
+    }
+    renderComparacao();
+
+    // Gráficos (um por medida — pequenos múltiplos)
+    const g = $('eGraficos');
+    g.innerHTML = '';
+    let algum = false;
+    MEDIDAS.forEach(([k, nome, un]) => {
+      const pts = avaliacoesOrdenadas().filter((a) => a[k] !== '' && a[k] != null).map((a) => ({ data: a.data, v: a[k] }));
+      if (pts.length < 2) return;
+      algum = true;
+      const d = pts[pts.length - 1].v - pts[0].v;
+      g.append(h('div', { class: 'graf-card' },
+        h('h4', {}, nome, h('span', { text: `${d >= 0 ? '+' : '−'}${fmtNum(Math.abs(d))} ${un} desde ${dataLonga(pts[0].data).slice(0, 5)}` })),
+        grafico(pts, un, `${nome} ao longo do tempo`)));
+    });
+    if (!algum) g.append(h('p', { class: 'nota-peq', text: 'Os gráficos aparecem quando uma medida tiver 2 ou mais registros (ex.: Dia 0 e Dia 15).' }));
+  }
+
+  function cardAvaliacao(a, sup, grande, sub, onclick) {
+    const ok = a && temMedida(a);
+    const resumo = a ? MEDIDAS.filter(([k]) => a[k] !== '' && a[k] != null).map(([k, n, un]) => `${n} ${fmtNum(a[k])}${un === '%' ? '%' : ' ' + un}`).join(' · ') : '';
+    const nFotos = a ? Object.keys(a.fotos || {}).length : 0;
+    return h('button', { class: 'aval' + (ok ? ' feita' : ''), onclick },
+      h('div', { class: 'marco' }, sup, h('b', { text: grande })),
+      h('div', {}, sub, h('small', { text: resumo || 'Sem medidas registradas' }), nFotos ? h('small', { text: `📷 ${nFotos} foto(s)` }) : null),
+      h('span', { class: 'status', text: ok ? '✓ registrada' : 'pendente' }));
+  }
+
+  function renderComparacao() {
+    const box = $('eComparacao');
+    box.innerHTML = '';
+    const A = estado.avaliacoes.find((a) => a.id === $('eCompA').value);
+    const B = estado.avaliacoes.find((a) => a.id === $('eCompB').value);
+    if (!A || !B) { box.append(h('p', { class: 'nota-peq', text: 'Registre avaliações para comparar.' })); return; }
+    const tab = h('table', { class: 'tabela-comp' },
+      h('thead', {}, h('tr', {}, h('th', { text: 'Medida' }), h('th', { text: dataLonga(A.data).slice(0, 5) }), h('th', { text: dataLonga(B.data).slice(0, 5) }), h('th', { text: 'Diferença' }))));
+    const tb = h('tbody');
+    MEDIDAS.forEach(([k, nome, un]) => {
+      const a = A[k]; const b = B[k];
+      const tem = (v) => v !== '' && v != null;
+      const dif = tem(a) && tem(b) ? b - a : null;
+      tb.append(h('tr', {}, h('td', { text: `${nome} (${un})` }), h('td', { text: tem(a) ? fmtNum(a) : '—' }), h('td', { text: tem(b) ? fmtNum(b) : '—' }),
+        h('td', { text: dif == null ? '—' : `${dif > 0 ? '+' : dif < 0 ? '−' : ''}${fmtNum(Math.abs(dif))}` })));
+    });
+    tab.append(tb);
+    box.append(tab);
+  }
+  let compManual = false;
+  $('eCompA').onchange = () => { compManual = true; renderComparacao(); };
+  $('eCompB').onchange = () => { compManual = true; renderComparacao(); };
+
+  // --- diálogo da avaliação ---
+  let avalCtx = null; // { id, marco, fotosNovas:{pos:blob}, fotosRemover:Set }
+  const urlsFotos = [];
+  function limparUrls() { while (urlsFotos.length) URL.revokeObjectURL(urlsFotos.pop()); }
+
+  function mostrarFoto(label, blob) {
+    label.querySelectorAll('img').forEach((i) => i.remove());
+    if (!blob) return;
+    const u = URL.createObjectURL(blob); urlsFotos.push(u);
+    label.prepend(h('img', { src: u, alt: '' }));
+  }
+
+  function abrirAvaliacao(id, novo = {}) {
+    const a = id ? estado.avaliacoes.find((x) => x.id === id) : null;
+    avalCtx = { id: a ? a.id : null, marco: a ? a.marco : (novo.marco ?? null), fotosNovas: {}, fotosRemover: new Set() };
+    const f = $('formAval');
+    $('daTitulo').textContent = avalCtx.marco != null ? `Avaliação — Dia ${avalCtx.marco}` : 'Registro extra';
+    f.data.value = a ? a.data : (novo.data || hoje());
+    MEDIDAS.forEach(([k]) => { f[k].value = a ? a[k] : ''; });
+    f.obs.value = a ? a.obs : '';
+    $('daExcluir').hidden = !a;
+    limparUrls();
+    document.querySelectorAll('#formAval .foto').forEach((lb) => {
+      mostrarFoto(lb, null);
+      const k = a && a.fotos[lb.dataset.pos];
+      if (k) fotosDB.get(k).then((b) => mostrarFoto(lb, b)).catch(() => {});
+    });
+    $('dlgAval').showModal();
+  }
+
+  document.querySelectorAll('#formAval .foto input').forEach((inp) => {
+    inp.onchange = async () => {
+      const arq = inp.files[0]; inp.value = '';
+      if (!arq) return;
+      const blob = await comprimirFoto(arq);
+      const pos = inp.parentElement.dataset.pos;
+      avalCtx.fotosNovas[pos] = blob;
+      mostrarFoto(inp.parentElement, blob);
+    };
+  });
+
+  $('formAval').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    let a = avalCtx.id ? estado.avaliacoes.find((x) => x.id === avalCtx.id) : null;
+    if (!a) { a = { id: novoId(), marco: avalCtx.marco, fotos: {} }; estado.avaliacoes.push(a); }
+    a.data = f.data.value || hoje();
+    MEDIDAS.forEach(([k]) => { a[k] = numOuVazio(f[k].value.replace(',', '.')); });
+    a.obs = f.obs.value.trim();
+    for (const [pos, blob] of Object.entries(avalCtx.fotosNovas)) {
+      const chave = `foto-${a.id}-${pos}`;
+      try { await fotosDB.put(chave, blob); a.fotos[pos] = chave; }
+      catch (_) { alert('Não foi possível salvar a foto neste navegador.'); }
+    }
+    salvar(); limparUrls(); $('dlgAval').close(); renderEvolucao();
+  });
+  $('daCancelar').onclick = () => { limparUrls(); $('dlgAval').close(); };
+  $('daExcluir').onclick = () => {
+    if (!avalCtx.id || !confirm('Excluir esta avaliação (medidas e fotos)?')) return;
+    const a = estado.avaliacoes.find((x) => x.id === avalCtx.id);
+    Object.values(a.fotos || {}).forEach((k) => fotosDB.del(k).catch(() => {}));
+    estado.avaliacoes = estado.avaliacoes.filter((x) => x.id !== avalCtx.id);
+    salvar(); limparUrls(); $('dlgAval').close(); renderEvolucao();
+  };
+  $('eNovaExtra').onclick = () => abrirAvaliacao(null, { marco: null, data: hoje() });
+
+  // --- dados iniciais ---
+  $('eEditarPerfil').onclick = () => {
+    const p = estado.perfil || { ...PROGRAMA.perfil };
+    const f = $('formPerfil');
+    f.inicio.value = p.inicio; f.peso.value = p.peso; f.altura.value = p.altura; f.idade.value = p.idade;
+    $('dlgPerfil').showModal();
+  };
+  $('formPerfil').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    estado.perfil = { inicio: f.inicio.value, peso: numOuVazio(f.peso.value), altura: numOuVazio(f.altura.value), idade: numOuVazio(f.idade.value) };
+    salvar(); $('dlgPerfil').close(); renderVista();
+  });
+  $('dpCancelar').onclick = () => $('dlgPerfil').close();
+
+  // ---------- Aviso de fim do descanso ----------
   let audioCtx = null;
   function destravarAudio() {
     try {
@@ -992,7 +1588,6 @@
       if (audioCtx.state === 'suspended') audioCtx.resume();
     } catch (_) { /* sem áudio */ }
   }
-
   function alertar() {
     if (navigator.vibrate) navigator.vibrate([300, 150, 300]);
     const f = $('flash');
@@ -1012,11 +1607,8 @@
       });
     } catch (_) { /* sem áudio */ }
   }
-
   async function manterTelaLigada() {
-    try {
-      if ('wakeLock' in navigator && modoAberto()) wakeLock = await navigator.wakeLock.request('screen');
-    } catch (_) { /* não suportado */ }
+    try { if ('wakeLock' in navigator && modoAberto()) wakeLock = await navigator.wakeLock.request('screen'); } catch (_) { /* não suportado */ }
   }
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && modoAberto()) { manterTelaLigada(); tickModo(); }
@@ -1025,13 +1617,10 @@
   // ---------- Backup ----------
   $('btnExportar').onclick = () => {
     const blob = new Blob([JSON.stringify(estado, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `treinos-${new Date().toISOString().slice(0, 10)}.json`;
+    const a = h('a', { href: URL.createObjectURL(blob), download: `projeto-v-backup-${hoje()}.json` });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
-
   $('inpImportar').onchange = async (ev) => {
     const arq = ev.target.files[0];
     ev.target.value = '';
@@ -1039,18 +1628,16 @@
     try {
       const dados = JSON.parse(await arq.text());
       if (!dados || !Array.isArray(dados.treinos)) throw new Error('formato');
-      if (!confirm('Isso vai substituir seus treinos atuais. Continuar?')) return;
+      if (!confirm('Isso vai substituir os dados atuais deste aparelho pelos do backup. Continuar?')) return;
       estado = normalizar(dados);
-      salvar(); render();
-    } catch (_) {
-      alert('Arquivo de backup inválido.');
-    }
+      salvar(); renderVista();
+    } catch (_) { alert('Arquivo de backup inválido.'); }
   };
 
-  // ---------- PWA ----------
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  }
+  // ---------- Início ----------
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); // pede para o navegador não apagar os dados
 
-  render();
+  instalarProjetoV();
+  renderVista();
 })();

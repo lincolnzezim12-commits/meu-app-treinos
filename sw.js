@@ -1,6 +1,6 @@
 // Cache simples para o app abrir offline (na academia sem sinal).
-const CACHE = 'meus-treinos-v3';
-const ARQUIVOS = ['./', 'index.html', 'style.css', 'app.js', 'manifest.json', 'icon.svg'];
+const CACHE = 'meus-treinos-v4';
+const ARQUIVOS = ['./', 'index.html', 'style.css', 'programa.js', 'app.js', 'manifest.json', 'icon.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARQUIVOS)));
