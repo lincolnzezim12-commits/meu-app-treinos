@@ -43,6 +43,8 @@
       avaliacoes: [],  // evolução corporal
       descansos: [],   // datas (AAAA-MM-DD) de dias de descanso
       arquivo: [],     // fichas anteriores (antes do Projeto V), guardadas sem alteração
+      limpezas: [],    // limpezas automáticas já feitas (cada uma roda uma única vez)
+      ultimoBackup: null,
     };
   }
 
@@ -130,6 +132,8 @@
     }
     if (Array.isArray(dados.descansos)) base.descansos = [...new Set(dados.descansos.map(String))].sort();
     if (Array.isArray(dados.arquivo)) base.arquivo = dados.arquivo;
+    if (Array.isArray(dados.limpezas)) base.limpezas = dados.limpezas.map(String);
+    if (dados.ultimoBackup) base.ultimoBackup = String(dados.ultimoBackup);
     return base;
   }
 
@@ -190,6 +194,37 @@
     salvar();
     return true;
   }
+
+  // ---------- Histórico: limpeza ----------
+  // Apaga só o histórico de treinos (treinos concluídos, cargas registradas, séries em andamento,
+  // dias de descanso). Mantém a ficha, vídeos, perfil e avaliações corporais.
+  const LIMPEZA_TESTE = 'historico-teste-2026-11';
+  const CHAVE_COPIA = 'projeto-v-copia-antes-limpeza';
+
+  function temHistorico(st) {
+    return st.historico.length > 0 || Object.values(st.log).some((l) => l.length) || st.descansos.length > 0
+      || st.treinos.some((t) => t.exercicios.some((e) => e.feitas.length));
+  }
+  function limparHistorico() {
+    estado.historico = [];
+    estado.log = {};
+    estado.sessao = null;
+    estado.descansos = [];
+    estado.treinos.forEach((t) => t.exercicios.forEach((e) => { e.feitas = []; e.nota = ''; }));
+  }
+  // Pedido do usuário: o histórico feito até agora era de teste. Roda uma única vez por aparelho,
+  // guardando antes uma cópia local para poder desfazer.
+  function limpezaDoHistoricoDeTeste() {
+    if (estado.limpezas.includes(LIMPEZA_TESTE)) return;
+    if (temHistorico(estado)) {
+      const resumo = { treinos: estado.historico.length, exercicios: Object.values(estado.log).reduce((a, l) => a + l.length, 0), descansos: estado.descansos.length };
+      try { localStorage.setItem(CHAVE_COPIA, JSON.stringify({ data: new Date().toISOString(), resumo, estado })); } catch (_) { /* sem espaço: segue sem cópia */ }
+      limparHistorico();
+    }
+    estado.limpezas.push(LIMPEZA_TESTE);
+    salvar();
+  }
+  function lerCopia() { try { return JSON.parse(localStorage.getItem(CHAVE_COPIA)); } catch (_) { return null; } }
 
   // ---------- Utilidades ----------
   const treinoAtual = () => estado.treinos[estado.atual];
@@ -374,7 +409,59 @@
       ));
     });
     renderHistorico();
+    renderDados();
+    renderAvisos();
   }
+
+  function renderDados() {
+    $('dUltimoBackup').textContent = estado.ultimoBackup
+      ? `Último backup: ${dataLonga(estado.ultimoBackup)} (${haQuanto(estado.ultimoBackup)}).`
+      : 'Nenhum backup feito ainda neste aparelho.';
+    const c = lerCopia();
+    $('dLimpeza').hidden = !c;
+    if (c) {
+      const r = c.resumo || {};
+      $('dLimpezaTxt').textContent = `Em ${dataLonga(c.data)} o app apagou o histórico de teste (${r.treinos || 0} treino(s) concluído(s), ${r.exercicios || 0} registro(s) de exercício, ${r.descansos || 0} dia(s) de descanso). Uma cópia ficou guardada neste aparelho caso você queira desfazer.`;
+    }
+  }
+
+  const ehIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const instalado = () => window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  function lerFlag(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+  function gravarFlag(k, v) { try { localStorage.setItem(k, v); } catch (_) { /* ignora */ } }
+
+  function renderAvisos() {
+    $('iInstalar').hidden = !(ehIOS() && !instalado() && !lerFlag('projeto-v-ocultar-instalar'));
+    const temDados = temHistorico(estado) || estado.avaliacoes.some((a) => a.marco !== 0 || Object.keys(a.fotos || {}).length);
+    const dias = estado.ultimoBackup ? difDias(estado.ultimoBackup, hoje()) : null;
+    const mostrar = temDados && (dias == null || dias >= 7);
+    $('iBackupAviso').hidden = !mostrar;
+    if (mostrar) $('iBackupTxt').textContent = `${dias == null ? 'Você ainda não fez nenhum backup.' : `Último backup há ${dias} dias.`} Seus registros ficam só neste aparelho — guarde uma cópia no app Arquivos ou no iCloud Drive.`;
+  }
+  $('iInstalarFechar').onclick = () => { gravarFlag('projeto-v-ocultar-instalar', '1'); renderAvisos(); };
+  $('iBackupBtn').onclick = () => exportarBackup();
+
+  $('btnApagarHist').onclick = () => {
+    if (!temHistorico(estado)) { alert('Não há histórico de treinos para apagar.'); return; }
+    if (!confirm('Apagar TODO o histórico de treinos (treinos concluídos, cargas registradas e dias de descanso)?\n\nA ficha, os vídeos e a evolução corporal continuam. Se quiser guardar uma cópia, exporte um backup antes.')) return;
+    if (!confirm('Tem certeza? Isso não pode ser desfeito.')) return;
+    limparHistorico();
+    salvar(); fecharModo(); renderVista();
+  };
+  $('dLimpezaDesfazer').onclick = () => {
+    const c = lerCopia();
+    if (!c || !confirm('Restaurar o histórico que foi apagado? (o que você registrou depois da limpeza será substituído)')) return;
+    estado = normalizar(c.estado);
+    if (!estado.limpezas.includes(LIMPEZA_TESTE)) estado.limpezas.push(LIMPEZA_TESTE);
+    salvar();
+    try { localStorage.removeItem(CHAVE_COPIA); } catch (_) { /* ignora */ }
+    renderVista();
+  };
+  $('dLimpezaDescartar').onclick = () => {
+    if (!confirm('Descartar a cópia do histórico de teste? Depois disso não dá mais para desfazer.')) return;
+    try { localStorage.removeItem(CHAVE_COPIA); } catch (_) { /* ignora */ }
+    renderDados();
+  };
 
   $('iDescanso').onclick = () => {
     const d = hoje();
@@ -661,6 +748,7 @@
     });
     const planejadas = t.exercicios.reduce((a, e) => a + e.series, 0);
     const duracao = s ? Math.round(((s.fimTreino || Date.now()) - s.inicio) / 1000) : 0;
+    const anterior = estado.historico.find((x) => x.treino === ti && doPrograma(x)) || null;
     estado.historico.unshift({
       programa: estado.programa ? estado.programa.id : undefined,
       treino: ti, nome: t.nome, data: agora,
@@ -674,10 +762,17 @@
     salvar();
     fecharModo();
     renderVista();
-    mostrarResumo(ti, t.nome, duracao, nSeries, planejadas, vol, linhas);
+    mostrarResumo(ti, t.nome, duracao, nSeries, planejadas, vol, linhas, anterior);
   }
 
-  function mostrarResumo(ti, nome, duracao, nSeries, planejadas, vol, linhas) {
+  function mostrarResumo(ti, nome, duracao, nSeries, planejadas, vol, linhas, anterior) {
+    if (anterior) {
+      const dv = Math.round(vol) - num(anterior.volume);
+      const pct = anterior.volume ? Math.round((dv / anterior.volume) * 100) : 0;
+      $('rsComp').textContent = `Comparado ao ${rotulo(ti)} anterior (${haQuanto(anterior.data)}): volume ${dv >= 0 ? '+' : '−'}${fmtKg(Math.abs(dv))} kg (${pct >= 0 ? '+' : '−'}${Math.abs(pct)}%) · séries ${num(anterior.series)} → ${nSeries}${anterior.duracao && duracao ? ` · tempo ${mmss(anterior.duracao)} → ${mmss(duracao)}` : ''}.`;
+    } else {
+      $('rsComp').textContent = `Primeiro ${rotulo(ti)} registrado. O próximo será comparado com este.`;
+    }
     $('rsTitulo').textContent = `${rotulo(ti)}${nome ? ' — ' + nome : ''}`;
     const k = $('rsKpis'); k.innerHTML = '';
     k.append(
@@ -1614,30 +1709,89 @@
     if (document.visibilityState === 'visible' && modoAberto()) { manterTelaLigada(); tickModo(); }
   });
 
-  // ---------- Backup ----------
-  $('btnExportar').onclick = () => {
-    const blob = new Blob([JSON.stringify(estado, null, 2)], { type: 'application/json' });
-    const a = h('a', { href: URL.createObjectURL(blob), download: `projeto-v-backup-${hoje()}.json` });
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  };
+  // ---------- Backup (arquivo .json com tudo, inclusive as fotos) ----------
+  const blobParaDataURL = (b) => new Promise((ok, erro) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => erro(r.error); r.readAsDataURL(b); });
+
+  async function exportarBackup() {
+    const fotosBackup = {};
+    for (const a of estado.avaliacoes) {
+      for (const k of Object.values(a.fotos || {})) {
+        try { const b = await fotosDB.get(k); if (b) fotosBackup[k] = await blobParaDataURL(b); } catch (_) { /* foto indisponível */ }
+      }
+    }
+    const nome = `projeto-v-backup-${hoje()}.json`;
+    const conteudo = JSON.stringify({ app: 'projeto-v', exportadoEm: new Date().toISOString(), ...estado, fotosBackup });
+    const arquivo = new File([conteudo], nome, { type: 'application/json' });
+    // iPhone: abre o menu Compartilhar → "Salvar em Arquivos" / iCloud Drive
+    if (navigator.canShare && navigator.canShare({ files: [arquivo] })) {
+      try {
+        await navigator.share({ files: [arquivo], title: 'Backup Projeto V' });
+        marcarBackup();
+        return;
+      } catch (err) {
+        if (err && err.name === 'AbortError') return; // cancelado pelo usuário
+      }
+    }
+    const a = h('a', { href: URL.createObjectURL(arquivo), download: nome });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    marcarBackup();
+  }
+  function marcarBackup() { estado.ultimoBackup = new Date().toISOString(); salvar(); renderVista(); }
+  $('btnExportar').onclick = () => exportarBackup();
+
   $('inpImportar').onchange = async (ev) => {
     const arq = ev.target.files[0];
     ev.target.value = '';
     if (!arq) return;
+    let dados;
     try {
-      const dados = JSON.parse(await arq.text());
+      dados = JSON.parse(await arq.text());
       if (!dados || !Array.isArray(dados.treinos)) throw new Error('formato');
-      if (!confirm('Isso vai substituir os dados atuais deste aparelho pelos do backup. Continuar?')) return;
-      estado = normalizar(dados);
-      salvar(); renderVista();
-    } catch (_) { alert('Arquivo de backup inválido.'); }
+    } catch (_) { alert('Arquivo de backup inválido.'); return; }
+    if (!confirm('Isso vai substituir os dados deste aparelho pelos do backup. Continuar?')) return;
+    let fotosOk = 0;
+    for (const [k, url] of Object.entries(dados.fotosBackup || {})) {
+      try { await fotosDB.put(k, await (await fetch(url)).blob()); fotosOk++; } catch (_) { /* segue */ }
+    }
+    estado = normalizar(dados);
+    if (!estado.limpezas.includes(LIMPEZA_TESTE)) estado.limpezas.push(LIMPEZA_TESTE); // não apagar o que foi importado
+    salvar(); fecharModo(); renderVista();
+    alert(`Backup importado${fotosOk ? ` (com ${fotosOk} foto(s))` : ''}.`);
   };
 
+  // ---------- Service worker: offline + aviso de nova versão ----------
+  function registrarServiceWorker() {
+    if (!('serviceWorker' in navigator) || location.protocol === 'file:') return;
+    const tinhaControlador = !!navigator.serviceWorker.controller;
+    let recarregando = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!tinhaControlador || recarregando) return; // primeira instalação não precisa recarregar
+      recarregando = true;
+      location.reload(); // os dados estão salvos; o treino em andamento continua
+    });
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      const avisar = (w) => {
+        $('atualizacao').hidden = false;
+        $('atualizarBtn').disabled = false;
+        $('atualizarBtn').onclick = () => { $('atualizarBtn').disabled = true; w.postMessage({ tipo: 'ATUALIZAR' }); };
+      };
+      if (reg.waiting && navigator.serviceWorker.controller) avisar(reg.waiting);
+      reg.addEventListener('updatefound', () => {
+        const w = reg.installing;
+        if (!w) return;
+        w.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) avisar(w); });
+      });
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch(() => {});
+  }
+
   // ---------- Início ----------
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  registrarServiceWorker();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); // pede para o navegador não apagar os dados
 
   instalarProjetoV();
+  limpezaDoHistoricoDeTeste();
+  if (instalado()) document.documentElement.classList.add('instalado');
   renderVista();
 })();

@@ -4,12 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0d0f12">
+  <meta name="color-scheme" content="dark">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Projeto V">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Projeto V 4.0</title>
+  <meta name="format-detection" content="telephone=no">
+  <meta name="description" content="Projeto V 4.0 — treinos, cargas e evolução de 90 dias.">
+  <title>Projeto V</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="icon" href="icons/icone.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" sizes="180x180">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,6 +27,21 @@
       <h1>PROJETO V <span class="dourado">4.0</span></h1>
     </header>
     <main>
+      <div id="iInstalar" class="aviso-card" hidden>
+        <b>Instale o Projeto V no iPhone</b>
+        <ol>
+          <li>Toque em <b>Compartilhar</b> <span aria-hidden="true">⬆︎</span> na barra do Safari.</li>
+          <li>Escolha <b>Adicionar à Tela de Início</b>.</li>
+          <li>Deixe <b>Abrir como App</b> ativado (se aparecer) e toque em <b>Adicionar</b>.</li>
+        </ol>
+        <p class="nota-peq">O app instalado guarda os dados separados do Safari. Se já registrou algo aqui, use <b>Exportar backup</b> antes e <b>Importar backup</b> no app instalado.</p>
+        <button id="iInstalarFechar" class="link-btn">Agora não</button>
+      </div>
+      <div id="iBackupAviso" class="aviso-card" hidden>
+        <b>Faça um backup</b>
+        <p class="nota-peq" id="iBackupTxt"></p>
+        <button id="iBackupBtn" class="btn primario pequeno">Exportar backup agora</button>
+      </div>
       <div class="cartao-destaque">
         <div class="linha-entre">
           <span class="rotulo-peq">Progresso dos 90 dias</span>
@@ -57,14 +78,25 @@
       </section>
 
       <section class="backup">
-        <h2 class="secao">Dados</h2>
-        <p class="nota-peq">Tudo fica salvo neste aparelho. Faça um backup de vez em quando (as fotos de evolução não entram no arquivo).</p>
+        <h2 class="secao">Dados e backup</h2>
+        <p class="nota-peq">Seus registros ficam só neste aparelho (não vão para nenhum servidor). Se o Safari/armazenamento do iPhone for apagado, eles se perdem — por isso exporte um backup de vez em quando (inclui as fotos de evolução).</p>
+        <p id="dUltimoBackup" class="nota-peq"></p>
         <div class="linha-btns">
           <button id="btnExportar" class="btn leve">Exportar backup</button>
           <label class="btn leve">Importar backup
-            <input id="inpImportar" type="file" accept="application/json" hidden>
+            <input id="inpImportar" type="file" accept="application/json,.json" hidden>
           </label>
         </div>
+        <div id="dLimpeza" class="aviso-card" hidden>
+          <b>Histórico de teste apagado</b>
+          <p class="nota-peq" id="dLimpezaTxt"></p>
+          <div class="linha-btns">
+            <button id="dLimpezaDesfazer" class="btn leve pequeno">Desfazer</button>
+            <button id="dLimpezaDescartar" class="btn leve pequeno">Descartar cópia</button>
+          </div>
+        </div>
+        <button id="btnApagarHist" class="btn perigo largo">Apagar histórico de treinos…</button>
+        <p class="nota-peq">Apaga treinos concluídos, cargas registradas e dias de descanso. Mantém a ficha, os vídeos e a evolução corporal.</p>
       </section>
     </main>
   </section>
@@ -238,6 +270,11 @@
 
   <div id="flash" class="flash" hidden></div>
 
+  <div id="atualizacao" class="toast" hidden role="status">
+    <span>Nova versão do Projeto V disponível.</span>
+    <button id="atualizarBtn" class="btn primario pequeno">Atualizar</button>
+  </div>
+
   <!-- ================= DIÁLOGOS ================= -->
   <dialog id="dlg">
     <form id="form" method="dialog">
@@ -301,6 +338,7 @@
       <p class="sobretitulo">Treino concluído</p>
       <h2 id="rsTitulo"></h2>
       <div id="rsKpis" class="kpis"></div>
+      <p id="rsComp" class="rs-comp"></p>
       <ul id="rsLista" class="rs-lista"></ul>
       <button id="rsOk" class="btn primario enorme">OK</button>
     </div>

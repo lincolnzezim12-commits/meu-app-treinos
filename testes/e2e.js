@@ -54,15 +54,56 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   assert.equal(TOTAIS.reduce((a, b) => a + b), 104);
   ok('5 treinos, exercícios, séries e repetições conferem (21+20+24+23+16 = 104 séries)');
   const supino = s.treinos[1].exercicios.find((e) => e.nome === 'Supino reto');
-  assert.equal(supino.id, 'a'); assert.equal(s.log.a.length, 1);
-  assert.equal(s.historico.length, 1); assert.equal(s.arquivo.length, 1);
-  ok('histórico antigo preservado (Supino reto manteve suas cargas; ficha antiga arquivada)');
+  assert.equal(supino.id, 'a'); assert.equal(s.arquivo.length, 1);
+  ok('Supino reto continua ligado ao mesmo exercício; ficha antiga arquivada');
+
+  // 1b) Limpeza única do histórico de teste (pedido do usuário) + desfazer + apagar manual
+  assert.equal(s.historico.length, 0); assert.deepEqual(s.log, {}); assert.equal(s.descansos.length, 0);
+  assert.ok(s.limpezas.includes('historico-teste-2026-11'));
+  assert.ok(await p.evaluate(() => !!localStorage.getItem('projeto-v-copia-antes-limpeza')));
+  assert.ok(!(await p.isHidden('#dLimpeza')));
+  ok('histórico de teste apagado na abertura, com cópia de segurança');
+  await p.click('#dLimpezaDesfazer');
+  s = await estado();
+  assert.equal(s.historico.length, 1); assert.equal(s.log.a.length, 1);
+  await p.reload(); s = await estado();
+  assert.equal(s.historico.length, 1, 'limpeza não pode rodar de novo depois de desfeita');
+  ok('“Desfazer” restaura o histórico e a limpeza não roda de novo');
+  await p.click('#btnApagarHist');
+  s = await estado();
+  assert.equal(s.historico.length, 0); assert.deepEqual(s.log, {});
+  assert.equal(s.treinos[1].exercicios.length, 6); assert.equal(s.avaliacoes.length, 1);
+  ok('“Apagar histórico de treinos” limpa só o histórico (ficha e evolução continuam)');
+  // a partir daqui: um registro anterior do Supino reto para testar comparação/sugestão
+  await p.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('meus-treinos-v1'));
+    st.log.a = [{ data: '2026-11-13T23:00:00.000Z', treino: 1, series: [{ reps: 10, kg: 40 }, { reps: 9, kg: 40 }] }];
+    localStorage.setItem('meus-treinos-v1', JSON.stringify(st));
+  });
+  await p.reload(); s = await estado();
   assert.deepEqual(s.perfil, { inicio: '2026-11-13', peso: 80, altura: 172, idade: 26 });
   assert.equal(s.avaliacoes.length, 1); assert.equal(s.avaliacoes[0].marco, 0); assert.equal(s.avaliacoes[0].peso, 80);
   assert.equal(s.avaliacoes[0].cintura, '');
   ok('perfil e avaliação do Dia 0 (só peso 80 kg; nenhuma medida inventada)');
-  assert.equal(s.historico.filter((x) => x.programa).length, 0);
+  assert.equal(s.historico.length, 0);
   ok('nenhum treino concluído foi inventado');
+
+  // 1c) PWA: manifest, ícones e cabeçalhos para iPhone
+  const man = await (await p.request.get(URL_APP + 'manifest.json')).json();
+  assert.equal(man.name, 'Projeto V'); assert.equal(man.short_name, 'Projeto V'); assert.equal(man.display, 'standalone');
+  for (const ic of man.icons) {
+    const r = await p.request.get(URL_APP + ic.src);
+    assert.equal(r.status(), 200, ic.src);
+    const buf = await r.body();
+    const [w, hgt] = [buf.readUInt32BE(16), buf.readUInt32BE(20)]; // cabeçalho PNG
+    assert.equal(`${w}x${hgt}`, ic.sizes, ic.src);
+  }
+  assert.ok(man.icons.some((i) => i.purpose === 'maskable'));
+  const touch = await p.getAttribute('link[rel=apple-touch-icon]', 'href');
+  assert.equal((await p.request.get(URL_APP + touch)).status(), 200);
+  assert.equal(await p.getAttribute('meta[name=apple-mobile-web-app-status-bar-style]', 'content'), 'black-translucent');
+  assert.ok((await p.getAttribute('meta[name=viewport]', 'content')).includes('viewport-fit=cover'));
+  ok(`manifest (standalone) e ícones PNG ${man.icons.map((i) => i.sizes).join(', ')} + apple-touch-icon 180×180`);
 
   // 2) Catálogo: toda variação tem demonstração ou indisponibilidade + 5 instruções
   const cat = await p.evaluate(() => Object.values(window.CATALOGO).flatMap((c) => c.variacoes.map((v) => ({ n: v.nome, d: v.demo && v.demo.tipo, i: (v.instrucoes || []).length }))));
@@ -129,6 +170,13 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   assert.equal(await p.textContent('#iTreinos'), '1');
   assert.ok((await p.textContent('#iAtualNome')).startsWith('TREINO 3'));
   ok('dados continuam salvos após recarregar; próximo da sequência = Treino 3');
+  await p.locator('.card-treino').nth(1).locator('text=INICIAR TREINO').click();
+  await p.click('#mAcao'); await p.click('#mFechar');
+  await p.click('.menu [data-ir=vTreinos]'); await p.click('#btnConcluir');
+  await p.waitForSelector('#dlgResumo[open]');
+  assert.match(await p.textContent('#rsComp'), /Comparado ao Treino 2 anterior/);
+  ok('resumo compara com a sessão anterior do mesmo treino: ' + (await p.textContent('#rsComp')));
+  await p.click('#rsOk'); await p.click('.menu [data-ir=vInicio]');
 
   // 6) Progressão sugerida sem mudar a carga
   await p.evaluate(() => {
@@ -189,11 +237,76 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   ok('avaliação do Dia 15 salva (peso, cintura, foto), comparação Dia 0 × Dia 15 e gráfico de peso');
   await shot('06-evolucao');
 
+  // 8b) Backup completo (com foto): exportar → apagar tudo → importar
+  await p.click('.menu [data-ir=vInicio]');
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#btnExportar')]);
+  const caminho = await dl.path();
+  const bk = JSON.parse(require('fs').readFileSync(caminho, 'utf8'));
+  assert.equal(Object.keys(bk.fotosBackup).length, 1); assert.equal(bk.avaliacoes.length, 2);
+  assert.ok((await estado()).ultimoBackup);
+  await p.evaluate(() => new Promise((ok) => { localStorage.clear(); const r = indexedDB.deleteDatabase('projeto-v-fotos'); r.onsuccess = r.onerror = r.onblocked = () => ok(); }));
+  await p.reload();
+  await p.setInputFiles('#inpImportar', caminho);
+  await p.waitForFunction(() => JSON.parse(localStorage.getItem('meus-treinos-v1')).avaliacoes.length === 2);
+  s = await estado();
+  assert.ok(s.log[s.treinos[1].exercicios[0].id]);
+  await p.click('.menu [data-ir=vEvolucao]');
+  await p.locator('.aval').nth(1).click(); await p.waitForTimeout(400);
+  assert.equal(await p.locator('#formAval .foto[data-pos=frente] img').count(), 1);
+  await p.click('#daCancelar');
+  ok('backup exporta tudo (inclusive a foto), e a importação restaura em aparelho limpo');
+
   // 9) Dia de descanso
   await p.click('.menu [data-ir=vInicio]');
   await p.click('#iDescanso');
   assert.equal(await p.textContent('#iDescansos'), '1');
   ok('dia de descanso registrado');
+
+  // 10) Offline: com o service worker ativo, o app abre sem internet
+  await p.evaluate(() => navigator.serviceWorker.ready);
+  await p.reload(); // garante que a página está controlada pelo SW
+  assert.ok(await p.evaluate(() => !!navigator.serviceWorker.controller));
+  await ctx.setOffline(true);
+  await p.reload();
+  assert.equal(await p.textContent('#vInicio h1'), 'PROJETO V 4.0');
+  assert.equal(await p.locator('.card-treino').count(), 5);
+  await p.locator('.card-treino').nth(0).locator('text=INICIAR TREINO').click();
+  await p.click('#mAcao');
+  await p.click('#mFechar');
+  s = await estado();
+  assert.ok(s.treinos[0].exercicios[0].feitas.length >= 1);
+  await ctx.setOffline(false);
+  ok('sem internet: app abre pelo cache e registra séries normalmente');
+
+  // 11) Aviso de nova versão: cópia do app num servidor próprio; troca o sw.js e pede atualização
+  {
+    const http = require('http'); const fs = require('fs'); const path = require('path'); const os = require('os');
+    const raiz = path.join(__dirname, '..');
+    const copia = fs.mkdtempSync(path.join(os.tmpdir(), 'projeto-v-'));
+    for (const f of fs.readdirSync(raiz)) if (!f.startsWith('.') && f !== 'testes') fs.cpSync(path.join(raiz, f), path.join(copia, f), { recursive: true });
+    const tipos = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+    const srv = http.createServer((req, res) => {
+      const f = path.join(copia, decodeURIComponent(req.url.split('?')[0]).replace(/\/$/, '/index.html'));
+      fs.readFile(f, (err, buf) => { if (err) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'Content-Type': tipos[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-cache' }); res.end(buf); });
+    }).listen(0);
+    const url = `http://localhost:${srv.address().port}/`;
+    const q = await ctx.newPage();
+    q.on('pageerror', (e) => erros.push(e.message));
+    await q.goto(url);
+    await q.evaluate(() => navigator.serviceWorker.ready);
+    await q.reload();
+    assert.ok(await q.evaluate(() => !!navigator.serviceWorker.controller));
+    assert.ok(await q.isHidden('#atualizacao'));
+    const sw = path.join(copia, 'sw.js');
+    fs.writeFileSync(sw, fs.readFileSync(sw, 'utf8').replace(/const VERSAO = '[^']+'/, "const VERSAO = 'teste-nova'"));
+    await q.evaluate(() => navigator.serviceWorker.getRegistration().then((r) => r.update()));
+    await q.waitForSelector('#atualizacao:not([hidden])', { timeout: 15000 });
+    await Promise.all([q.waitForNavigation(), q.click('#atualizarBtn')]);
+    assert.equal(await q.locator('.card-treino').count(), 5);
+    assert.ok(await q.evaluate(async () => (await caches.keys()).includes('projeto-v-teste-nova')));
+    await q.close(); srv.close();
+    ok('nova versão: aviso “Atualizar” aparece, troca o cache e recarrega o app');
+  }
 
   assert.deepEqual(erros, []);
   ok('nenhum erro de JavaScript');

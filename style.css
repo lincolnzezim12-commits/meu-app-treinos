@@ -16,9 +16,21 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; background: var(--fundo); }
+button, .btn, a, label, select, summary { touch-action: manipulation; }
+button, .btn, .menu, .aba, .card-treino, .series-lista li { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+:focus-visible { outline: 2px solid var(--destaque); outline-offset: 2px; }
+
+/* Faixa atrás da barra de status / Dynamic Island no modo app (conteúdo não passa por baixo do relógio) */
+body::before {
+  content: ''; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top); z-index: 4;
+  background: var(--fundo); pointer-events: none;
+}
 
 body {
   margin: 0;
+  padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
+  overscroll-behavior-y: none;
   background: var(--fundo);
   color: var(--texto);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -72,8 +84,9 @@ main, .topo { max-width: 640px; margin: 0 auto; padding: 0 16px; }
   display: flex; background: rgba(13, 15, 18, .96); border-top: 1px solid var(--borda);
   padding-bottom: env(safe-area-inset-bottom); backdrop-filter: blur(8px);
 }
+.menu { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 .menu button {
-  flex: 1; height: var(--menu-h); background: none; border: none; color: var(--suave);
+  flex: 1; min-height: 48px; height: var(--menu-h); background: none; border: none; color: var(--suave);
   font-size: .72rem; font-weight: 600; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
 }
 .menu button span { font-size: 1.2rem; filter: grayscale(1); opacity: .7; }
@@ -84,7 +97,7 @@ main, .topo { max-width: 640px; margin: 0 auto; padding: 0 16px; }
 .abas {
   display: flex; gap: 8px; overflow-x: auto;
   max-width: 640px; margin: 16px auto 0; padding: 8px 16px 4px;
-  position: sticky; top: 0; background: var(--fundo); z-index: 2;
+  position: sticky; top: env(safe-area-inset-top); background: var(--fundo); z-index: 2;
 }
 .aba {
   flex: 1 1 0; min-width: 0;
@@ -211,7 +224,7 @@ body.treinando { overflow: hidden; }
   padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
 }
 .modo-topo {
-  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  display: flex; align-items: center; gap: 12px; padding: 12px max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
   border-bottom: 1px solid var(--borda);
 }
 .modo-titulo { flex: 1; min-width: 0; font-weight: 700; }
@@ -262,7 +275,7 @@ body.treinando { overflow: hidden; }
 .m-cab { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 .m-cab h2 { flex: 1; margin: 0; font-size: 1.35rem; overflow-wrap: anywhere; }
 .variacao select {
-  margin-top: 8px; width: 100%; padding: 9px 12px; font-size: .95rem;
+  margin-top: 8px; width: 100%; padding: 10px 12px; font-size: 16px; /* 16px evita zoom do iPhone */
   background: var(--card); color: var(--texto); border: 1px solid var(--destaque); border-radius: 10px;
 }
 .m-meta { margin: 6px 0 0; color: var(--texto); font-size: .92rem; }
@@ -396,3 +409,42 @@ body.treinando { overflow: hidden; }
 .tabela-comp th:first-child, .tabela-comp td:first-child { text-align: left; color: var(--suave); }
 .tabela-comp th { color: var(--suave); font-weight: 600; font-size: .78rem; }
 #eGraficos .nota-peq { margin-bottom: 10px; }
+
+/* ---------- Avisos, toast e transições ---------- */
+.aviso-card {
+  margin-top: 16px; padding: 14px 16px; border-radius: 16px;
+  border: 1px solid rgba(212, 175, 55, .45); background: rgba(212, 175, 55, .07);
+}
+.aviso-card > b { display: block; color: var(--destaque); margin-bottom: 6px; }
+.aviso-card ol { margin: 4px 0 0; padding-left: 20px; font-size: .9rem; line-height: 1.55; }
+.aviso-card .btn.pequeno { margin-top: 10px; }
+.backup .aviso-card .linha-btns .btn { margin-top: 0; }
+.rs-comp { color: var(--texto); font-size: .86rem; line-height: 1.45; margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--fundo); border: 1px solid var(--borda); text-align: left; }
+.toast {
+  position: fixed; left: 12px; right: 12px; z-index: 30; max-width: 520px; margin: 0 auto;
+  bottom: calc(var(--menu-h) + 12px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px;
+  background: var(--card2); border: 1px solid var(--destaque); box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: .9rem;
+}
+.toast span { flex: 1; }
+.btn:active:not(:disabled), .aba:active, .card-treino .btn:active { transform: scale(.98); }
+.btn, .aba, .menu button { transition: transform .12s ease, background-color .15s ease, color .15s ease; }
+.vista:not([hidden]) { animation: entrar .22s ease-out; }
+.modo:not([hidden]) { animation: subir .24s ease-out; }
+dialog[open] { animation: entrar .18s ease-out; }
+@keyframes entrar { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes subir { from { opacity: .4; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* Telas baixas (iPhone SE, mini): mais espaço para a lista de séries */
+@media (max-height: 700px) {
+  .midia { max-height: 22vh; }
+  .fase { padding: 6px 10px; margin-bottom: 8px; }
+  .fase-tempo { font-size: 1.9rem; margin-top: 0; }
+  .fase-prox { display: none; }
+  .modo-botoes .enorme { padding: 13px; font-size: 1rem; }
+  .stepper button, .stepper input { height: 42px; }
+  .linha-botoes .btn { padding: 8px 4px; }
+}
