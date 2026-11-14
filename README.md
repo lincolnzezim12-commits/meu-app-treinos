@@ -15,11 +15,13 @@ Funciona no celular e no computador, offline, e salva tudo no próprio aparelho.
 - **Ficha do Projeto V 4.0** (104 séries por ciclo):
   Treino 1 Costas + Bíceps (21) · Treino 2 Peito + Tríceps (20) · Treino 3 Pernas + Abdômen (24) ·
   Treino 4 Ombros + Braços (23) · Treino 5 Especialização Shape em V (16).
-- **Tela de treino**: vídeo do exercício, instruções "Como executar corretamente", meta de
-  repetições, carga e reps de cada série (− / +), lista "Série 1 — 20 kg — 10 reps — Concluída",
-  edição de série já feita, observação do dia, cronômetro de descanso automático
-  (pausar, retomar, reiniciar, ±15 s, aviso sonoro/visual) e resumo final
-  (duração, séries e volume).
+- **Tela de treino** (layout limpo): vídeo no topo, nome do exercício, "Série 1 de 3", meta e
+  última carga, repetições e peso (− / +), bolinhas das séries (toque para corrigir), botão
+  **Concluir série / Concluir exercício** e **Adiar exercício · Pular série · Pular exercício**.
+  No topo: tempo de treino, **Pausar** treino, barra de progresso e lista de exercícios
+  ("Exercício 1 de 6 ▾"). O descanso abre em tela própria com anel de contagem, próximo
+  exercício, ±15 s, **Pular descanso**, pausar e reiniciar. Resumo final com duração, séries e
+  volume.
 - **Variações**: "Agachamento ou hack" e "Barra fixa ou puxada alta" (também crucifixo inverso
   halteres/máquina e tríceps unilateral polia/halter), cada uma com seu vídeo e histórico.
 - **Carga clara**: total, por halter, por lado ou carga adicional (peso corporal).

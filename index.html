@@ -198,77 +198,111 @@
 
   <!-- ================= TELA DE TREINO ================= -->
   <section id="modo" class="modo" hidden aria-label="Treinando">
-    <header class="modo-topo">
-      <button id="mFechar" class="redondo" aria-label="Sair da tela de treino">✕</button>
-      <div class="modo-titulo">
+    <header class="mt-topo">
+      <button id="mFechar" class="icone-btn" aria-label="Sair da tela de treino">←</button>
+      <div class="mt-titulo">
         <div id="mTreino"></div>
-        <small id="mPosicao"></small>
+        <button id="mPosicao" class="mt-pos" aria-label="Ver lista de exercícios"></button>
       </div>
-      <div class="relogio" title="Tempo total de treino">⏱ <span id="mTotal">00:00</span></div>
+      <div id="mDireita" class="mt-dir">
+        <div class="pill-tempo" title="Tempo de treino"><span aria-hidden="true">◷</span> <span id="mTotal">0:00</span></div>
+        <button id="mPausarTreino" class="pill-btn">Pausar <span aria-hidden="true">❚❚</span></button>
+      </div>
     </header>
+    <div id="mProgWrap" class="mt-prog"><div id="mProgBarra" class="mt-prog-barra"><span id="mProgPct">0%</span></div></div>
 
-    <div class="modo-corpo">
-      <div id="mMidia" class="player"></div>
-
-      <div class="m-cab">
+    <!-- Série -->
+    <div id="telaSerie" class="mt-corpo">
+      <div id="mMidia" class="player cheio"></div>
+      <div class="mt-info">
         <h2 id="mNome"></h2>
-        <button id="mStats" class="redondo" aria-label="Resumo e histórico do exercício">📊</button>
-        <button id="mEditar" class="redondo" aria-label="Editar exercício">✎</button>
+        <div id="mVariacao" class="variacao"></div>
+        <div class="mt-links">
+          <button id="mComoBtn">Como fazer</button>
+          <button id="mStats">Histórico</button>
+          <button id="mNota">Observação</button>
+          <button id="mEditar">Editar</button>
+        </div>
+        <p id="mRotulo" class="mt-serie"></p>
+        <p id="mMeta" class="mt-meta"></p>
+        <p id="mUltima" class="mt-ultima"></p>
+        <div id="mProgressao"></div>
+        <p id="mObs" class="obs mt-obs"></p>
+
+        <div id="mEntrada" class="entrada">
+          <div class="campo">
+            <span>Repetições</span>
+            <div class="stepper">
+              <button type="button" data-campo="reps" data-passo="-1" aria-label="Menos repetições">−</button>
+              <div class="valor"><input id="inReps" type="number" inputmode="numeric" min="0" step="1" aria-label="Repetições"></div>
+              <button type="button" data-campo="reps" data-passo="1" aria-label="Mais repetições">+</button>
+            </div>
+          </div>
+          <div class="campo">
+            <span id="inKgRotulo">Peso (kg)</span>
+            <div class="stepper">
+              <button type="button" data-campo="kg" data-passo="-1" aria-label="Menos peso">−</button>
+              <div class="valor"><input id="inKg" type="number" inputmode="decimal" min="0" step="0.5" aria-label="Peso em kg"></div>
+              <button type="button" data-campo="kg" data-passo="1" aria-label="Mais peso">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="mBolinhas" class="pontos" aria-label="Séries"></div>
+        <p id="mPontosDica" class="mt-dica">Toque numa série feita para corrigir.</p>
+
+        <details id="mComo" class="como">
+          <summary>COMO EXECUTAR CORRETAMENTE</summary>
+          <div id="mComoCorpo"></div>
+        </details>
       </div>
-      <div id="mVariacao" class="variacao"></div>
-      <p id="mMeta" class="m-meta"></p>
-      <div id="mProgressao"></div>
-      <ol id="mSeries" class="series-lista"></ol>
-      <button id="mNota" class="link-btn">📝 Adicionar observação</button>
-      <p id="mObs" class="obs"></p>
-      <details id="mComo" class="como">
-        <summary>COMO EXECUTAR CORRETAMENTE</summary>
-        <div id="mComoCorpo"></div>
-      </details>
     </div>
 
-    <footer class="modo-botoes">
-      <div id="mFase" class="fase">
-        <div class="fase-linha">
-          <div id="mRotulo" class="fase-rotulo"></div>
-          <div id="mBolinhas" class="bolinhas"></div>
-        </div>
-        <div id="mTempo" class="fase-tempo">00:00</div>
-        <div id="mProx" class="fase-prox"></div>
+    <!-- Descanso: a tela fica só no descanso -->
+    <div id="telaDescanso" class="mt-descanso" hidden>
+      <p id="dRotulo" class="d-tit">Descanso</p>
+      <div class="anel">
+        <svg viewBox="0 0 200 200" aria-hidden="true">
+          <circle cx="100" cy="100" r="88" class="anel-fundo"/>
+          <circle cx="100" cy="100" r="88" class="anel-prog" id="mAnel"/>
+        </svg>
+        <span id="mTempo" class="anel-tempo">0:00</span>
       </div>
-
-      <div id="mEntrada" class="entrada">
-        <div class="campo">
-          <span>Repetições</span>
-          <div class="stepper">
-            <button type="button" data-campo="reps" data-passo="-1" aria-label="Menos repetições">−</button>
-            <input id="inReps" type="number" inputmode="numeric" min="0" step="1" aria-label="Repetições">
-            <button type="button" data-campo="reps" data-passo="1" aria-label="Mais repetições">+</button>
-          </div>
-        </div>
-        <div class="campo">
-          <span id="inKgRotulo">Peso (kg)</span>
-          <div class="stepper">
-            <button type="button" data-campo="kg" data-passo="-1" aria-label="Menos peso">−</button>
-            <input id="inKg" type="number" inputmode="decimal" min="0" step="0.5" aria-label="Peso em kg">
-            <button type="button" data-campo="kg" data-passo="1" aria-label="Mais peso">+</button>
-          </div>
-        </div>
-      </div>
-
-      <button id="mAcao" class="btn sucesso enorme"></button>
-      <div class="linha-botoes">
-        <button id="mAnterior" class="btn leve" aria-label="Exercício anterior">◀</button>
-        <button id="mDesfazer" class="btn leve">↶ Desfazer</button>
-        <button id="mDescansar" class="btn leve">⏱ Descanso</button>
+      <p id="mProx" class="d-prox"></p>
+      <div class="d-linha">
         <button id="mMenos15" class="btn leve">−15s</button>
-        <button id="mPausar" class="btn leve">⏸ Pausar</button>
-        <button id="mReiniciar" class="btn leve">↺</button>
         <button id="mMais15" class="btn leve">+15s</button>
-        <button id="mProximo" class="btn leve" aria-label="Próximo exercício">▶</button>
+      </div>
+      <button id="mPular" class="btn primario d-pular">Pular descanso</button>
+      <div class="d-linha">
+        <button id="mPausar" class="btn leve">❚❚ Pausar</button>
+        <button id="mReiniciar" class="btn leve">↺ Reiniciar</button>
+      </div>
+    </div>
+
+    <!-- Fim do treino -->
+    <div id="telaFim" class="mt-fim" hidden>
+      <p class="sobretitulo">Treino completo</p>
+      <h2>💪 Mandou bem!</h2>
+      <div id="fimKpis" class="kpis"></div>
+      <p class="nota-peq">Toque em finalizar para salvar no histórico.</p>
+    </div>
+
+    <footer id="mRodape" class="mt-rodape">
+      <button id="mAcao" class="btn primario enorme"></button>
+      <div id="mAcoes" class="mt-acoes">
+        <button id="mAdiar" class="btn leve">Adiar exercício</button>
+        <button id="mPularSerie" class="btn leve">Pular série</button>
+        <button id="mPularEx" class="btn leve">Pular exercício</button>
       </div>
     </footer>
   </section>
+
+  <dialog id="dlgExercicios">
+    <h2 id="deTitulo">Exercícios</h2>
+    <ol id="deLista" class="de-lista"></ol>
+    <div class="dlg-acoes"><span class="espaco"></span><button id="deFechar" class="btn leve">Fechar</button></div>
+  </dialog>
 
   <!-- ================= DETALHES DO EXERCÍCIO ================= -->
   <section id="det" class="modo det" hidden aria-label="Detalhes do exercício">

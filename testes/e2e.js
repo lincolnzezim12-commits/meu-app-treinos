@@ -37,6 +37,7 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   p.on('dialog', (d) => d.accept());
   const shot = async (n) => { if (SHOTS) await p.screenshot({ path: `${SHOTS}/${n}.png` }); };
   const estado = () => p.evaluate(() => JSON.parse(localStorage.getItem('meus-treinos-v1')));
+  const irParaExercicio = async (n) => { await p.click('#mPosicao'); await p.locator('#deLista .de-item').nth(n).click(); };
   const ok = (msg) => console.log('✔', msg);
 
   await p.goto(URL_APP);
@@ -123,28 +124,37 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   assert.ok((await p.textContent('#mComoCorpo')).includes('Posição inicial'));
   await p.fill('#inKg', '22'); await p.fill('#inReps', '9');
   await p.click('#mAcao');
-  assert.equal(await p.textContent('#mRotulo'), 'Descanso');
+  assert.equal(await p.textContent('#dRotulo'), 'Descanso');
+  assert.ok(await p.isHidden('#telaSerie')); assert.ok(await p.isHidden('#mRodape'));
+  assert.match(await p.textContent('#mProx'), /Próximo: Série 2 de Supino inclinado com halteres/);
   // pausar / retomar / reiniciar
   await p.click('#mPausar');
   const t1 = await p.textContent('#mTempo'); await p.waitForTimeout(1300);
   assert.equal(await p.textContent('#mTempo'), t1);
   await p.click('#mPausar'); await p.click('#mReiniciar');
-  assert.equal(await p.textContent('#mTempo'), '02:30');
-  ok('descanso: inicia sozinho, pausa, retoma e reinicia (150 s)');
+  assert.equal(await p.textContent('#mTempo'), '2:30');
+  ok('descanso em tela própria (anel, próximo, ±15s): inicia sozinho, pausa, retoma e reinicia (150 s)');
   await shot('02-descanso');
-  await p.click('#mAcao'); // pular descanso
+  await p.click('#mPular'); // pular descanso
   assert.equal(await p.textContent('#mRotulo'), 'Série 2 de 4');
   assert.equal(await p.inputValue('#inKg'), '22'); // sugere a série anterior, não aumenta
   // editar série 1 (22 -> 20 kg)
-  await p.click('#mSeries li.ok');
+  assert.equal(await p.locator('#mBolinhas .ponto.feito').count(), 1);
+  await p.click('#mBolinhas .ponto.feito');
   await p.fill('#formSerie [name=kg]', '20'); await p.click('#formSerie button[type=submit]');
-  assert.ok((await p.textContent('#mSeries li.ok')).includes('20 kg/halter — 9 reps'));
-  ok('série registrada com carga/reps/horário e editada depois (Série 1 — 20 kg/halter — 9 reps — Concluída)');
+  assert.equal((await estado()).treinos[1].exercicios[0].feitas[0].kg, 20);
+  ok('série registrada com carga/reps/horário e corrigida depois tocando na bolinha (20 kg/halter × 9)');
+  // pausar o treino congela o tempo
+  await p.click('#mPausarTreino');
+  const tt = await p.textContent('#mTotal'); await p.waitForTimeout(1300);
+  assert.equal(await p.textContent('#mTotal'), tt);
+  await p.click('#mPausarTreino');
+  ok('Pausar treino congela o tempo de treino e Retomar continua');
   await shot('03-treino');
   // supino reto mostra a carga do histórico antigo
-  await p.click('#mProximo');
+  await irParaExercicio(1);
   assert.equal(await p.textContent('#mNome'), 'Supino reto');
-  assert.ok((await p.textContent('#mMeta')).includes('Última: 40 kg × 10'));
+  assert.ok((await p.textContent('#mUltima')).includes('Última: 40 kg × 10'));
   await p.click('#mAcao');
   ok('Supino reto sugere a última carga registrada antes (40 kg)');
   await p.click('#mFechar');
@@ -187,12 +197,13 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   });
   await p.reload();
   await p.locator('.card-treino').nth(0).locator('text=INICIAR TREINO').click();
-  await p.click('#mProximo'); await p.click('#mProximo'); await p.click('#mProximo'); await p.click('#mProximo');
+  await irParaExercicio(4);
   assert.equal(await p.textContent('#mNome'), 'Rosca direta barra W');
-  assert.ok((await p.textContent('#mProgressao')).includes('Hora de progredir'));
+  assert.ok((await p.textContent('#mProgressao')).includes('Você bateu 10 reps'));
   assert.equal(await p.inputValue('#inKg'), '30');
   ok('sugestão de progressão aparece e a carga sugerida continua 30 kg (não aumenta sozinha)');
   await p.click('#mStats');
+  await p.click('[data-aba=resumo]');
   await p.waitForSelector('.grafico');
   assert.ok((await p.textContent('#dCorpo')).includes('Melhor carga'));
   await p.click('[data-aba=como]');
@@ -213,9 +224,21 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   const midia = await p.textContent('#mMidia');
   assert.ok(midia.includes('indisponível') || (await p.locator('#mMidia .capa').count()) === 1);
   console.log('   player:', midia.includes('indisponível') ? 'vídeo inacessível nesta rede → mostra "Demonstração indisponível" sem quebrar' : 'capa do vídeo exibida (toque para reproduzir)');
-  await p.click('#mProximo');
+  await irParaExercicio(1);
   assert.equal(await p.textContent('#mNome'), 'Leg press');
   ok('trocar de exercício carrega a demonstração correspondente');
+  // Pular série, adiar e pular exercício
+  await p.click('#mPularSerie');
+  assert.equal(await p.locator('#mBolinhas .ponto.pulado').count(), 1);
+  assert.equal(await p.textContent('#mRotulo'), 'Série 2 de 4');
+  await p.click('#mAdiar');
+  assert.equal(await p.textContent('#mNome'), 'Terra romeno');
+  await p.click('#mPularEx');
+  assert.equal(await p.textContent('#mNome'), 'Cadeira extensora');
+  s = await estado();
+  assert.equal(s.treinos[2].exercicios[2].puladas, 3); assert.equal(s.treinos[2].exercicios[2].feitas.length, 0);
+  assert.deepEqual(s.sessao.adiados, [s.treinos[2].exercicios[1].id]);
+  ok('Pular série, Adiar exercício (vai para o fim) e Pular exercício funcionam');
   await p.click('#mFechar');
 
   // 8) Evolução corporal

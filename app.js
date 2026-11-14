@@ -87,6 +87,7 @@
           video: String(e.video || ''),
           obs: String(e.obs || ''),
           nota: String(e.nota || ''),
+          puladas: Math.max(0, Math.round(num(e.puladas))),
           conferidos: Array.isArray(e.conferidos) ? e.conferidos.map(String) : [],
           feitas: [],
         };
@@ -210,7 +211,7 @@
     estado.log = {};
     estado.sessao = null;
     estado.descansos = [];
-    estado.treinos.forEach((t) => t.exercicios.forEach((e) => { e.feitas = []; e.nota = ''; }));
+    estado.treinos.forEach((t) => t.exercicios.forEach((e) => { e.feitas = []; e.nota = ''; e.puladas = 0; }));
   }
   // Pedido do usuário: o histórico feito até agora era de teste. Roda uma única vez por aparelho,
   // guardando antes uma cópia local para poder desfazer.
@@ -230,7 +231,7 @@
   const treinoAtual = () => estado.treinos[estado.atual];
   const rotulo = (i) => `Treino ${i + 1}`;
   const nomeTreino = (i) => `${rotulo(i).toUpperCase()}${estado.treinos[i] && estado.treinos[i].nome ? ' — ' + estado.treinos[i].nome : ''}`;
-  const feito = (e) => e.feitas.length >= e.series;
+  const feito = (e) => e.feitas.length + (e.puladas || 0) >= e.series;
   function metaReps(e) { const m = String(e.reps).match(/\d+/); return m ? Number(m[0]) : 10; }
   function faixa(e) {
     const m = String(e.reps).match(/(\d+)\s*[–—-]\s*(\d+)/);
@@ -650,7 +651,7 @@
     const check = h('button', {
       class: 'check', text: feito(e) ? '✓' : '', 'aria-label': feito(e) ? 'Desmarcar' : 'Marcar como feito',
       onclick: () => {
-        if (feito(e)) e.feitas = [];
+        if (feito(e)) { e.feitas = []; e.puladas = 0; }
         else while (e.feitas.length < e.series) e.feitas.push({ ...sugestao(e, e.feitas.length), t: new Date().toISOString() });
         salvar(); renderVista();
       },
@@ -843,7 +844,7 @@
       linhas.push([e.nome, `${e.feitas.length}/${e.series} · melhor ${fmtSerie(top, e)}`]);
     });
     const planejadas = t.exercicios.reduce((a, e) => a + e.series, 0);
-    const duracao = s ? Math.round(((s.fimTreino || Date.now()) - s.inicio) / 1000) : 0;
+    const duracao = s ? Math.round(segundosDeTreino(s)) : 0;
     const anterior = estado.historico.find((x) => x.treino === ti && doPrograma(x)) || null;
     estado.historico.unshift({
       programa: estado.programa ? estado.programa.id : undefined,
@@ -852,7 +853,7 @@
       series: nSeries, seriesPlanejadas: planejadas, duracao, volume: Math.round(vol),
     });
     estado.historico = estado.historico.slice(0, 500);
-    t.exercicios.forEach((e) => { e.feitas = []; e.nota = ''; });
+    t.exercicios.forEach((e) => { e.feitas = []; e.nota = ''; e.puladas = 0; });
     estado.sessao = null;
     estado.atual = proximoTreinoApos(ti);
     salvar();
@@ -883,18 +884,37 @@
   $('rsOk').onclick = () => $('dlgResumo').close();
 
   // ---------- Tela de treino ----------
-  // sessao: { treino, inicio, ex, fase: 'serie'|'descanso'|'completo', desde, fim, pausa, descansoTotal, prox, fimTreino, entrada }
+  // sessao: { treino, inicio, ex, fase: 'serie'|'descanso'|'completo', fim, pausa, descansoTotal, prox,
+  //           fimTreino, entrada, adiados:[ids], pausadoEm, pausaTotal }
   const sessaoDoAtual = () => (estado.sessao && estado.sessao.treino === estado.atual ? estado.sessao : null);
   const modoAberto = () => !$('modo').hidden;
   let loop = null;
   let midiaDe = null;
   let wakeLock = null;
 
-  function primeiroPendente(t, aPartirDe = 0) {
+  // Tempo de treino (desconta as pausas do treino)
+  function segundosDeTreino(s) {
+    const fim = s.fimTreino || s.pausadoEm || Date.now();
+    return Math.max(0, (fim - s.inicio - (s.pausaTotal || 0)) / 1000);
+  }
+  const fmtRelogio = (seg) => {
+    seg = Math.max(0, Math.round(seg));
+    const hh = Math.floor(seg / 3600); const m = Math.floor((seg % 3600) / 60); const ss = String(seg % 60).padStart(2, '0');
+    return hh ? `${hh}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+  };
+
+  // Próximo exercício pendente; os "adiados" ficam para o fim.
+  function primeiroPendente(t, aPartirDe = 0, evitar = null) {
     const n = t.exercicios.length;
-    for (let k = 0; k < n; k++) {
-      const i = (aPartirDe + k) % n;
-      if (!feito(t.exercicios[i])) return i;
+    const adiados = (estado.sessao && estado.sessao.adiados) || [];
+    for (const pularAdiados of [true, false]) {
+      for (let k = 0; k < n; k++) {
+        const i = (aPartirDe + k) % n;
+        const e = t.exercicios[i];
+        if (feito(e) || i === evitar) continue;
+        if (pularAdiados && adiados.includes(e.id)) continue;
+        return i;
+      }
     }
     return -1;
   }
@@ -905,9 +925,11 @@
     destravarAudio();
     let s = sessaoDoAtual();
     if (!s) {
-      const ini = exIdx ?? Math.max(0, primeiroPendente(t));
-      s = estado.sessao = { treino: estado.atual, inicio: Date.now(), ex: ini, fase: 'serie', desde: Date.now() };
-      if (primeiroPendente(t) === -1) s.fase = 'completo';
+      s = estado.sessao = { treino: estado.atual, inicio: Date.now(), ex: 0, fase: 'serie', adiados: [], pausaTotal: 0 };
+      const p = primeiroPendente(t);
+      if (exIdx != null) s.ex = exIdx;
+      else if (p === -1) s.fase = 'completo';
+      else s.ex = p;
     } else if (exIdx != null && exIdx !== s.ex) {
       irExercicio(exIdx);
     }
@@ -937,10 +959,27 @@
     const t = treinoAtual();
     if (!s || i < 0 || i >= t.exercicios.length) return;
     s.ex = i;
-    s.fase = feito(t.exercicios[i]) && primeiroPendente(t) === -1 ? 'completo' : 'serie';
-    s.desde = Date.now();
+    s.fase = primeiroPendente(t) === -1 ? 'completo' : 'serie';
     delete s.fim; delete s.prox; delete s.entrada; delete s.pausa;
-    if (s.fase === 'serie') delete s.fimTreino;
+    if (s.fase === 'serie') delete s.fimTreino; else s.fimTreino = s.fimTreino || Date.now();
+  }
+
+  // Depois de terminar (ou pular) o exercício atual: vai para o próximo pendente ou finaliza.
+  function avancar(comDescanso) {
+    const s = sessaoDoAtual();
+    const t = treinoAtual();
+    const e = t.exercicios[s.ex];
+    let prox = s.ex;
+    if (feito(e)) {
+      prox = primeiroPendente(t, s.ex + 1);
+      if (prox === -1) {
+        s.fase = 'completo'; s.fimTreino = Date.now();
+        alertar();
+        return;
+      }
+    }
+    if (comDescanso && e.descanso > 0) iniciarDescanso(e.descanso, prox);
+    else irExercicio(prox);
   }
 
   function exibido() {
@@ -948,49 +987,38 @@
     const t = treinoAtual();
     const idx = s.fase === 'descanso' ? s.prox : s.ex;
     const e = t.exercicios[idx];
-    return { s, t, idx, e, i: Math.min(e.feitas.length, e.series - 1) };
+    const feitasOuPuladas = e.feitas.length + (e.puladas || 0);
+    return { s, t, idx, e, i: Math.min(feitasOuPuladas, e.series - 1) };
   }
 
   function entradaAtual() {
     const { s, e, i } = exibido();
     const chave = `${e.id}:${e.variacao}:${i}`;
-    if (!s.entrada || s.entrada.chave !== chave) s.entrada = { chave, ...sugestao(e, i) };
+    if (!s.entrada || s.entrada.chave !== chave) s.entrada = { chave, ...sugestao(e, e.feitas.length) };
     return s.entrada;
   }
 
   function iniciarDescanso(segundos, prox) {
     const s = sessaoDoAtual();
-    s.fase = 'descanso'; s.desde = Date.now(); s.prox = prox;
+    s.fase = 'descanso'; s.prox = prox;
     s.descansoTotal = segundos; s.fim = Date.now() + segundos * 1000;
     delete s.pausa;
   }
 
   function terminarSerie() {
     const s = sessaoDoAtual();
-    const t = treinoAtual();
-    const e = t.exercicios[s.ex];
-    if (feito(e)) { irExercicio(Math.max(0, primeiroPendente(t, s.ex + 1))); salvar(); renderModo(); return; }
+    const e = treinoAtual().exercicios[s.ex];
+    if (feito(e)) { avancar(false); salvar(); renderModo(); return; }
     const ent = entradaAtual();
     e.feitas.push({ reps: Math.max(0, Math.round(num(ent.reps))), kg: Math.max(0, num(ent.kg)), t: new Date().toISOString() });
     delete s.entrada;
-    let prox = s.ex;
-    if (feito(e)) {
-      prox = primeiroPendente(t, s.ex + 1);
-      if (prox === -1) {
-        s.fase = 'completo'; s.fimTreino = Date.now();
-        alertar();
-        salvar(); renderModo();
-        return;
-      }
-    }
-    if (e.descanso > 0) iniciarDescanso(e.descanso, prox);
-    else irExercicio(prox);
+    avancar(true);
     salvar(); renderModo();
   }
 
   function fimDoDescanso() {
     const s = sessaoDoAtual();
-    const ent = s.entrada; // mantém o que foi ajustado durante o descanso
+    const ent = s.entrada; // mantém o que foi ajustado
     irExercicio(s.prox);
     if (ent) s.entrada = ent;
   }
@@ -998,7 +1026,7 @@
   function tickModo() {
     const s = sessaoDoAtual();
     if (!s) return;
-    if (s.fase === 'descanso' && s.pausa == null && Date.now() >= s.fim) {
+    if (s.fase === 'descanso' && s.pausa == null && !s.pausadoEm && Date.now() >= s.fim) {
       fimDoDescanso();
       salvar(); alertar(); renderModo();
       return;
@@ -1006,15 +1034,16 @@
     atualizarTempos();
   }
 
+  const CIRC = 2 * Math.PI * 88;
   function atualizarTempos() {
     const s = sessaoDoAtual();
     if (!s) return;
-    $('mTotal').textContent = mmss(((s.fimTreino || Date.now()) - s.inicio) / 1000);
+    $('mTotal').textContent = fmtRelogio(segundosDeTreino(s));
     if (s.fase === 'descanso') {
-      const resta = s.pausa != null ? s.pausa : s.fim - Date.now();
-      $('mTempo').textContent = mmss(Math.ceil(resta / 1000));
-    } else if (s.fase === 'serie' && !feito(treinoAtual().exercicios[s.ex])) {
-      $('mTempo').textContent = mmss((Date.now() - s.desde) / 1000);
+      const resta = Math.max(0, s.pausa != null ? s.pausa : s.fim - Date.now());
+      $('mTempo').textContent = fmtRelogio(Math.ceil(resta / 1000));
+      const frac = s.descansoTotal ? Math.min(1, resta / (s.descansoTotal * 1000)) : 0;
+      $('mAnel').style.strokeDashoffset = String(CIRC * (1 - frac));
     }
   }
 
@@ -1024,100 +1053,93 @@
     if (!s || !t.exercicios.length) { fecharModo(); return; }
     const { idx, e, i } = exibido();
     const tipo = tipoCargaDe(e);
+    const fase = s.fase;
 
-    $('mTreino').textContent = nomeTreino(estado.atual);
-    $('mPosicao').textContent = `Exercício ${idx + 1} de ${t.exercicios.length}`;
+    // Topo
+    $('mTreino').textContent = `${rotulo(estado.atual)} · ${t.nome}`;
+    $('mPosicao').textContent = `Exercício ${idx + 1} de ${t.exercicios.length} ▾`;
+    $('mPosicao').hidden = fase === 'descanso';
+    $('mDireita').hidden = fase === 'descanso';
+    $('mPausarTreino').hidden = fase === 'completo';
+    $('mPausarTreino').innerHTML = '';
+    $('mPausarTreino').append(s.pausadoEm ? 'Retomar ' : 'Pausar ', h('span', { 'aria-hidden': 'true', text: s.pausadoEm ? '▶' : '❚❚' }));
+    $('modo').classList.toggle('pausado', !!s.pausadoEm);
+    $('modo').classList.toggle('descansando', fase === 'descanso');
+    const plan = t.exercicios.reduce((a, x) => a + x.series, 0);
+    const feitasTot = t.exercicios.reduce((a, x) => a + x.feitas.length + (x.puladas || 0), 0);
+    const pct = plan ? Math.round((feitasTot / plan) * 100) : 0;
+    $('mProgBarra').style.width = `${Math.max(pct, 8)}%`;
+    $('mProgPct').textContent = `${pct}%`;
+    $('mProgWrap').hidden = fase === 'descanso';
+
+    // Telas
+    $('telaSerie').hidden = fase !== 'serie';
+    $('telaDescanso').hidden = fase !== 'descanso';
+    $('telaFim').hidden = fase !== 'completo';
+    $('mRodape').hidden = fase === 'descanso';
+    $('mAcoes').hidden = fase !== 'serie' || feito(e);
+
+    if (fase === 'descanso') {
+      $('dRotulo').textContent = s.pausa != null || s.pausadoEm ? 'Descanso (pausado)' : 'Descanso';
+      $('mProx').textContent = `Próximo: Série ${i + 1} de ${e.nome}`;
+      $('mPausar').textContent = s.pausa != null ? '▶ Retomar' : '❚❚ Pausar';
+      atualizarTempos();
+      return;
+    }
+    if (fase === 'completo') {
+      const vol = t.exercicios.reduce((a, x) => a + volume(x.feitas), 0);
+      const k = $('fimKpis'); k.innerHTML = '';
+      k.append(
+        h('div', {}, h('b', { text: fmtRelogio(segundosDeTreino(s)) }), h('span', { text: 'duração' })),
+        h('div', {}, h('b', { text: `${t.exercicios.reduce((a, x) => a + x.feitas.length, 0)}/${plan}` }), h('span', { text: 'séries' })),
+        h('div', {}, h('b', { text: fmtKg(Math.round(vol)) }), h('span', { text: 'kg de volume' })));
+      $('mAcao').textContent = '✓ Finalizar e salvar treino';
+      atualizarTempos();
+      return;
+    }
+
+    // Série
     $('mNome').textContent = e.nome;
     const chaveMidia = `${e.id}|${e.variacao}|${e.video}`;
-    if (midiaDe !== chaveMidia) { midiaDe = chaveMidia; renderMidia($('mMidia'), e); renderComo($('mComoCorpo'), e); }
+    if (midiaDe !== chaveMidia) { midiaDe = chaveMidia; renderMidia($('mMidia'), e, true); renderComo($('mComoCorpo'), e); $('telaSerie').scrollTop = 0; }
     renderSeletorVariacao($('mVariacao'), e);
 
-    const meta = $('mMeta');
-    meta.innerHTML = '';
-    meta.append(`Meta: ${e.reps || '-'} reps`);
-    if (e.descansoFaixa) meta.append(h('span', { text: ` · descanso ${e.descanso}s (${e.descansoFaixa})` }));
+    const ultimaFeita = feito(e);
+    $('mRotulo').textContent = ultimaFeita ? 'Exercício concluído' : `Série ${i + 1} de ${e.series}`;
+    $('mMeta').textContent = `Meta: ${e.reps || '-'} reps`;
     const u = ultimaSessao(e);
-    if (u && u.series.length) meta.append(h('span', { text: ` · Última: ${fmtSerie(u.series[i] || u.series[u.series.length - 1], e)} reps` }));
-
-    const pg = $('mProgressao');
-    pg.innerHTML = '';
+    const ref = u && u.series.length ? (u.series[e.feitas.length] || u.series[u.series.length - 1]) : null;
+    $('mUltima').textContent = ref ? `Última: ${fmtKg(ref.kg)} kg × ${ref.reps} reps` : 'Primeira vez neste exercício';
+    const pg = $('mProgressao'); pg.innerHTML = '';
     const prog = progressao(e);
-    if (prog) pg.append(h('div', { class: 'aviso-prog' }, h('b', { text: '💡 Hora de progredir? ' }),
-      `No último treino você fez ${prog.topo}+ repetições (topo da faixa) em todas as séries. Se a execução foi boa, ${prog.texto}. A carga não muda sozinha: ajuste no campo de peso.`));
-
-    // Lista de séries
-    const ol = $('mSeries');
-    ol.innerHTML = '';
-    for (let k = 0; k < e.series; k++) {
-      const x = e.feitas[k];
-      if (x) {
-        ol.append(h('li', { class: 'ok', title: 'Toque para editar', onclick: () => editarSerie(e.feitas, k, e) },
-          h('span', { class: 's-n', text: `Série ${k + 1}` }),
-          h('span', { class: 's-v', text: `${fmtKg(x.kg)} ${SUFIXO_CARGA[tipo]} — ${x.reps} reps` }),
-          h('span', { class: 's-st', text: `✓ Concluída${x.t ? ' · ' + horaCurta(x.t) : ''}` })));
-      } else {
-        const agora = k === e.feitas.length && s.fase !== 'completo';
-        ol.append(h('li', { class: agora ? 'agora' : '' },
-          h('span', { class: 's-n', text: `Série ${k + 1}` }),
-          h('span', { class: 's-v', text: `prevista ${e.reps} reps` }),
-          h('span', { class: 's-st', text: agora ? (s.fase === 'descanso' ? 'a seguir' : 'em andamento') : 'pendente' })));
-      }
-    }
+    if (prog && !ultimaFeita) pg.append(h('p', { class: 'mt-prog-dica' }, h('b', { text: '💡 ' }), `Você bateu ${prog.topo} reps em todas as séries. Se a execução foi boa, ${prog.texto}.`));
     $('mObs').textContent = [e.obs, e.nota ? `Hoje: ${e.nota}` : ''].filter(Boolean).join(' · ');
-    $('mNota').textContent = e.nota ? '📝 Editar observação de hoje' : '📝 Adicionar observação';
+    $('mNota').textContent = e.nota ? 'Observação ✓' : 'Observação';
 
-    const bol = $('mBolinhas');
-    bol.innerHTML = '';
-    for (let k = 0; k < e.series; k++) {
-      bol.append(h('div', {
-        class: 'bolinha' + (k < e.feitas.length ? ' feita' : (k === e.feitas.length && s.fase !== 'completo' ? ' atual' : '')),
-        text: k < e.feitas.length ? '✓' : String(k + 1),
-      }));
-    }
-
-    $('mFase').className = 'fase ' + s.fase + (s.pausa != null ? ' pausado' : '');
-    const acao = $('mAcao');
-    const ent = s.fase !== 'completo' && !feito(e) ? entradaAtual() : null;
+    const ent = !ultimaFeita ? entradaAtual() : null;
     $('mEntrada').hidden = !ent;
-    $('inKgRotulo').textContent = ROTULO_CARGA[tipo];
+    $('inKgRotulo').textContent = { total: 'Peso (kg)', halter: 'Kg por halter', lado: 'Kg por lado', corporal: 'Carga adicional (kg)' }[tipo];
     if (ent) {
       if (document.activeElement !== $('inReps')) $('inReps').value = ent.reps;
-      if (document.activeElement !== $('inKg')) $('inKg').value = ent.kg;
+      if (document.activeElement !== $('inKg')) $('inKg').value = String(Number(ent.kg));
     }
-    if (s.fase === 'serie' && !feito(e)) {
-      $('mRotulo').textContent = `Série ${i + 1} de ${e.series}`;
-      $('mProx').textContent = `prevista: ${e.reps} reps`;
-      acao.textContent = '✓ Concluir série';
-      acao.className = 'btn sucesso enorme';
-    } else if (s.fase === 'serie') {
-      $('mRotulo').textContent = 'Exercício feito';
-      $('mTempo').textContent = '✓';
-      $('mProx').textContent = 'Toque numa série para corrigir';
-      acao.textContent = 'Ir para o próximo ▶';
-      acao.className = 'btn primario enorme';
-    } else if (s.fase === 'descanso') {
-      $('mRotulo').textContent = s.pausa != null ? 'Descanso (pausado)' : 'Descanso';
-      $('mProx').textContent = idx === s.ex ? `A seguir: série ${i + 1} de ${e.series}` : `A seguir: ${e.nome} — série 1`;
-      acao.textContent = 'Pular descanso ⏭';
-      acao.className = 'btn primario enorme';
-    } else {
-      const feitas = t.exercicios.reduce((a, x) => a + x.feitas.length, 0);
-      const plan = t.exercicios.reduce((a, x) => a + x.series, 0);
-      const vol = t.exercicios.reduce((a, x) => a + volume(x.feitas), 0);
-      $('mRotulo').textContent = 'Treino completo!';
-      $('mTempo').textContent = '💪 Mandou bem';
-      $('mProx').textContent = `${mmss(((s.fimTreino || Date.now()) - s.inicio) / 1000)} · ${feitas}/${plan} séries · ${fmtKg(Math.round(vol))} kg de volume`;
-      acao.textContent = '✓ Finalizar e salvar treino';
-      acao.className = 'btn sucesso enorme';
+
+    // Bolinhas das séries (feitas = douradas; toque para corrigir)
+    const bol = $('mBolinhas'); bol.innerHTML = '';
+    const puladas = e.puladas || 0;
+    for (let k = 0; k < e.series; k++) {
+      if (k < e.feitas.length) {
+        const x = e.feitas[k];
+        bol.append(h('button', { class: 'ponto feito', 'aria-label': `Série ${k + 1}: ${fmtKg(x.kg)} kg × ${x.reps} — tocar para corrigir`, onclick: () => editarSerie(e.feitas, k, e) }));
+      } else if (k < e.feitas.length + puladas) {
+        bol.append(h('button', { class: 'ponto pulado', 'aria-label': `Série ${k + 1} pulada — tocar para desfazer`, onclick: () => { e.puladas = Math.max(0, puladas - 1); salvar(); renderModo(); } }));
+      } else {
+        bol.append(h('span', { class: 'ponto' + (k === e.feitas.length + puladas ? ' atual' : ''), 'aria-label': `Série ${k + 1}` }));
+      }
     }
-    const desc = s.fase === 'descanso';
-    ['mMenos15', 'mPausar', 'mReiniciar', 'mMais15'].forEach((id) => { $(id).hidden = !desc; });
-    ['mAnterior', 'mDesfazer', 'mProximo'].forEach((id) => { $(id).hidden = desc; });
-    $('mDescansar').hidden = desc || s.fase === 'completo';
-    $('mPausar').textContent = s.pausa != null ? '▶ Retomar' : '⏸ Pausar';
-    $('mDesfazer').disabled = t.exercicios[s.ex].feitas.length === 0;
-    $('mAnterior').disabled = s.ex === 0;
-    $('mProximo').disabled = s.ex >= t.exercicios.length - 1;
+    $('mPontosDica').hidden = !e.feitas.length && !puladas;
+
+    $('mAcao').textContent = ultimaFeita ? 'Próximo exercício ▶' : (i === e.series - 1 ? '✓ Concluir exercício' : '✓ Concluir série');
     atualizarTempos();
   }
 
@@ -1170,7 +1192,8 @@
   // --- botões da tela de treino ---
   $('mFechar').onclick = fecharModo;
   $('mEditar').onclick = () => abrirForm(exibido().e.id);
-  $('mStats').onclick = () => abrirDetalhes(exibido().e.id);
+  $('mStats').onclick = () => abrirDetalhes(exibido().e.id, 'historico');
+  $('mComoBtn').onclick = () => { const c = $('mComo'); c.open = true; c.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   $('mNota').onclick = () => {
     const e = exibido().e;
     const r = prompt('Observação para este exercício hoje (aparece no histórico):', e.nota || '');
@@ -1182,10 +1205,11 @@
     const s = sessaoDoAtual();
     if (!s) return;
     destravarAudio();
+    if (s.pausadoEm) retomarTreino(s);
     if (s.fase === 'serie') terminarSerie();
-    else if (s.fase === 'descanso') { fimDoDescanso(); salvar(); renderModo(); }
-    else concluirTreino();
+    else if (s.fase === 'completo') concluirTreino();
   };
+  $('mPular').onclick = () => { fimDoDescanso(); salvar(); renderModo(); };
   const ajustarDescanso = (ms) => {
     const s = sessaoDoAtual();
     if (!s || s.fase !== 'descanso') return;
@@ -1208,24 +1232,72 @@
     s.fim = Date.now() + (s.descansoTotal || 60) * 1000; delete s.pausa;
     salvar(); renderModo();
   };
-  $('mDescansar').onclick = () => {
+
+  // Pausar o treino inteiro: congela o tempo de treino (e o descanso, se estiver descansando)
+  function retomarTreino(s) {
+    s.pausaTotal = (s.pausaTotal || 0) + (Date.now() - s.pausadoEm);
+    delete s.pausadoEm;
+    if (s.fase === 'descanso' && s.pausa != null && s.pausaPeloTreino) { s.fim = Date.now() + s.pausa; delete s.pausa; }
+    delete s.pausaPeloTreino;
+  }
+  $('mPausarTreino').onclick = () => {
     const s = sessaoDoAtual();
-    const e = treinoAtual().exercicios[s.ex];
-    const ent = s.entrada;
-    iniciarDescanso(e.descanso || 60, s.ex);
-    if (ent) s.entrada = ent;
+    if (!s) return;
+    if (s.pausadoEm) retomarTreino(s);
+    else {
+      s.pausadoEm = Date.now();
+      if (s.fase === 'descanso' && s.pausa == null) { s.pausa = Math.max(0, s.fim - Date.now()); s.pausaPeloTreino = true; }
+    }
     salvar(); renderModo();
   };
-  $('mDesfazer').onclick = () => {
+
+  $('mPularSerie').onclick = () => {
     const s = sessaoDoAtual();
     const e = treinoAtual().exercicios[s.ex];
-    const ultima = e.feitas.pop();
-    s.fase = 'serie'; s.desde = Date.now(); delete s.fimTreino;
-    if (ultima) s.entrada = { chave: `${e.id}:${e.variacao}:${e.feitas.length}`, reps: ultima.reps, kg: ultima.kg };
+    if (feito(e)) return;
+    e.puladas = (e.puladas || 0) + 1;
+    delete s.entrada;
+    avancar(false);
     salvar(); renderModo();
   };
-  $('mAnterior').onclick = () => { irExercicio(sessaoDoAtual().ex - 1); salvar(); renderModo(); };
-  $('mProximo').onclick = () => { irExercicio(sessaoDoAtual().ex + 1); salvar(); renderModo(); };
+  $('mPularEx').onclick = () => {
+    const s = sessaoDoAtual();
+    const e = treinoAtual().exercicios[s.ex];
+    if (feito(e)) return;
+    const faltam = e.series - e.feitas.length - (e.puladas || 0);
+    if (!confirm(`Pular ${e.nome}? ${faltam === e.series ? 'O exercício' : `As ${faltam} série(s) que faltam`} não será(ão) registrada(s) hoje.`)) return;
+    e.puladas = (e.puladas || 0) + faltam;
+    avancar(false);
+    salvar(); renderModo();
+  };
+  $('mAdiar').onclick = () => {
+    const s = sessaoDoAtual();
+    const t = treinoAtual();
+    const e = t.exercicios[s.ex];
+    s.adiados = [...new Set([...(s.adiados || []), e.id])];
+    const prox = primeiroPendente(t, s.ex + 1, s.ex);
+    if (prox === -1) { alert('Não há outro exercício pendente: este é o último.'); return; }
+    irExercicio(prox);
+    salvar(); renderModo();
+  };
+
+  // Lista de exercícios do treino (tocar em "Exercício X de Y")
+  $('mPosicao').onclick = () => {
+    const s = sessaoDoAtual();
+    const t = treinoAtual();
+    const ol = $('deLista'); ol.innerHTML = '';
+    $('deTitulo').textContent = `${rotulo(estado.atual)} · ${t.nome}`;
+    t.exercicios.forEach((e, k) => {
+      const st = feito(e) ? (e.feitas.length ? '✓ feito' : 'pulado') : (s.adiados || []).includes(e.id) ? 'adiado' : e.feitas.length ? 'em andamento' : 'pendente';
+      ol.append(h('li', {},
+        h('button', { class: 'de-item' + (k === s.ex ? ' atual' : '') + (feito(e) ? ' ok' : ''), onclick: () => { $('dlgExercicios').close(); irExercicio(k); salvar(); renderModo(); } },
+          h('span', { class: 'de-n', text: String(k + 1) }),
+          h('span', { class: 'de-nome' }, e.nome, h('small', { text: `${e.feitas.length}/${e.series} séries · ${e.reps} reps` })),
+          h('span', { class: 'de-st', text: st }))));
+    });
+    $('dlgExercicios').showModal();
+  };
+  $('deFechar').onclick = () => $('dlgExercicios').close();
 
   // --- editar uma série já registrada (no treino de hoje ou no histórico) ---
   let serieCtx = null;
@@ -1278,7 +1350,7 @@
     if (f) f.call(el);
   }
 
-  function renderMidia(box, e) {
+  function renderMidia(box, e, compacto = false) {
     box.innerHTML = '';
     const v = variacaoDe(e);
     const nomeEx = v ? v.nome : e.nome;
@@ -1321,7 +1393,14 @@
         if (podeTelaCheia()) midia.append(h('button', { class: 'tela-cheia', text: '⛶', 'aria-label': 'Tela cheia', onclick: () => telaCheia(midia) }));
       };
       midia.append(capa);
-      fonte.append(
+      if (compacto) { // tela de treino: só uma linha discreta; detalhes em "Como fazer"
+        fonte.classList.add('compacta');
+        fonte.append(
+          h('span', { text: `${demo.status === 'nao-verificado' && !conferido(e) ? '⚠ ' : ''}YouTube · “${demo.titulo || nomeEx}”` }),
+          h('a', { href: `https://www.youtube.com/watch?v=${demo.id}`, target: '_blank', rel: 'noopener', text: 'Abrir ↗' }));
+        return;
+      }
+      fonte.append(...[
         h('span', { text: `Fonte: YouTube${demo.autor ? ' · ' + demo.autor : ''} · “${demo.titulo || nomeEx}”` }),
         demo.status === 'nao-verificado' && !conferido(e)
           ? h('span', { class: 'aviso-fonte', text: '⚠ Vídeo encontrado por busca, ainda não conferido. Veja se mostra exatamente esta variação.' }) : null,
@@ -1330,7 +1409,7 @@
         h('button', { text: 'Trocar vídeo', onclick: () => abrirForm(e.id, true) }),
         demo.status === 'nao-verificado' && !conferido(e)
           ? h('button', { text: '✓ Vídeo correto', onclick: () => { e.conferidos = [...new Set([...(e.conferidos || []), chaveVideo(e)])]; salvar(); atualizarTudo(true); } }) : null,
-      );
+      ].filter(Boolean));
       return;
     }
     if (demo.tipo === 'video') {

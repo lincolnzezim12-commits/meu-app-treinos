@@ -496,3 +496,162 @@ dialog[open] { animation: entrar .18s ease-out; }
 .selo.verde { border-color: var(--verde); color: var(--verde); }
 .card-treino.feito-semana:not(.proximo-treino) { border-color: rgba(60, 207, 122, .45); }
 .aba.feita-semana:not(.ativa) { border-color: rgba(60, 207, 122, .6); color: var(--verde); }
+
+/* =========================================================
+   Tela de treino — layout limpo (vídeo, série, carga, ação)
+   ========================================================= */
+.modo { background: #0a0a0b; }
+.mt-topo {
+  display: flex; align-items: center; gap: 10px; flex: none;
+  padding: 10px max(14px, env(safe-area-inset-right)) 10px max(10px, env(safe-area-inset-left));
+}
+.icone-btn { flex: none; width: 40px; height: 40px; border: none; background: none; color: var(--texto); font-size: 1.5rem; cursor: pointer; border-radius: 50%; }
+.icone-btn:active { background: var(--card); }
+.mt-titulo { flex: 1; min-width: 0; text-align: center; }
+.mt-titulo > div { font-weight: 600; font-size: .98rem; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mt-pos { margin-top: 2px; background: none; border: none; color: var(--suave); font-size: .82rem; cursor: pointer; padding: 2px 6px; }
+.mt-dir { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.pill-tempo {
+  display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 10px;
+  background: var(--card); color: var(--suave); font-size: .82rem; font-variant-numeric: tabular-nums;
+}
+.pill-btn {
+  padding: 6px 10px; border-radius: 10px; border: 1px solid var(--borda); background: none;
+  color: var(--texto); font-size: .8rem; cursor: pointer; white-space: nowrap;
+}
+.modo.pausado .pill-btn { border-color: var(--destaque); color: var(--destaque); }
+.modo.pausado .pill-tempo { color: var(--destaque); }
+.mt-prog { flex: none; margin: 0 16px 12px; height: 16px; border-radius: 8px; background: var(--card); border: 1px solid var(--borda); overflow: hidden; }
+.mt-prog-barra {
+  height: 100%; border-radius: 8px; background: linear-gradient(90deg, #a8862a, var(--destaque));
+  display: flex; align-items: center; padding-left: 8px; transition: width .35s ease;
+}
+.mt-prog-barra span { font-size: .62rem; font-weight: 800; color: #15120a; }
+
+.mt-corpo { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.player.cheio .midia { border-radius: 0; border-left: none; border-right: none; max-height: 30vh; }
+.player.cheio .fonte { padding: 0 16px; }
+.mt-info { max-width: 560px; margin: 0 auto; padding: 14px 16px 8px; text-align: center; }
+.mt-info h2 { margin: 4px 0 0; font-size: 1.35rem; font-weight: 700; }
+.mt-info .variacao select { max-width: 340px; margin: 8px auto 0; display: block; }
+.mt-links { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+.mt-links button { background: none; border: none; color: var(--suave); font-size: .78rem; padding: 4px 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--borda); text-underline-offset: 3px; }
+.mt-serie { margin: 18px 0 0; color: var(--destaque); font-size: 1.35rem; font-weight: 700; }
+.mt-meta { margin: 8px 0 0; color: var(--texto); opacity: .85; font-size: .98rem; }
+.mt-ultima { margin: 4px 0 0; color: var(--suave); font-size: .86rem; }
+.mt-prog-dica { margin: 10px auto 0; max-width: 420px; font-size: .8rem; color: #e8d9a8; line-height: 1.4; }
+.mt-obs { margin-top: 6px; }
+.mt-info .entrada { margin: 20px 0 0; text-align: left; gap: 14px; }
+.mt-info .campo > span { font-size: .9rem; color: var(--suave); margin-bottom: 8px; }
+.mt-info .stepper { gap: 8px; }
+.mt-info .stepper button { width: 48px; height: 52px; border-radius: 14px; background: #121316; font-size: 1.5rem; }
+.stepper .valor {
+  flex: 1; min-width: 0; height: 52px; display: flex; align-items: baseline; justify-content: center; gap: 3px;
+  border-radius: 14px; border: 1px solid var(--borda); background: #121316; padding-top: 11px;
+}
+.stepper .valor:focus-within { border-color: var(--destaque); }
+.stepper .valor input {
+  width: 100%; min-width: 0; height: auto; padding: 0; border: none; background: none; text-align: center;
+  font-size: 1.35rem; font-weight: 700; color: var(--texto);
+}
+.pontos { display: flex; justify-content: center; gap: 10px; margin-top: 22px; }
+.ponto {
+  width: 16px; height: 16px; border-radius: 50%; border: 2px solid #3a3f48; background: none; padding: 0;
+}
+button.ponto { cursor: pointer; }
+.ponto.atual { border-color: var(--destaque); }
+.ponto.feito { background: var(--destaque); border-color: var(--destaque); }
+.ponto.pulado { background: #3a3f48; border-color: #3a3f48; }
+.mt-dica { margin: 8px 0 0; font-size: .72rem; color: var(--suave); opacity: .8; }
+.mt-info .como { text-align: left; margin-top: 20px; }
+
+.mt-rodape { flex: none; padding: 10px 16px calc(12px + env(safe-area-inset-bottom) * 0); max-width: 600px; width: 100%; margin: 0 auto; }
+.mt-rodape .enorme { padding: 18px; font-size: 1.1rem; border-radius: 16px; }
+.mt-acoes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+.mt-acoes .btn { padding: 14px 4px; font-size: .82rem; font-weight: 500; color: var(--suave); background: #121316; border-radius: 14px; }
+
+/* Descanso em tela cheia */
+.mt-descanso {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  padding: 0 24px calc(24px + env(safe-area-inset-bottom)); text-align: center;
+}
+.d-tit { margin: 0 0 22px; font-size: 1.3rem; font-weight: 600; }
+.anel { position: relative; width: min(64vw, 260px); aspect-ratio: 1; }
+.anel svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.anel circle { fill: none; stroke-width: 9; }
+.anel-fundo { stroke: #1d1f24; }
+.anel-prog { stroke: var(--destaque); stroke-linecap: round; stroke-dasharray: 552.92; transition: stroke-dashoffset .25s linear; }
+.anel-tempo {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: clamp(3.2rem, 17vw, 4.6rem); font-weight: 700; color: var(--destaque); font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+.modo.pausado .anel-tempo, .mt-descanso.pausado .anel-tempo { opacity: .55; }
+.d-prox { margin: 24px 0 0; color: var(--suave); font-size: .95rem; max-width: 320px; }
+.d-linha { display: flex; gap: 12px; margin-top: 22px; }
+.d-linha .btn { min-width: 112px; padding: 13px 16px; border-radius: 14px; background: #121316; font-weight: 600; }
+.d-pular { margin-top: 26px; min-width: 200px; padding: 17px 28px; border-radius: 16px; font-size: 1.05rem; }
+.d-pular + .d-linha { margin-top: 14px; }
+.d-pular + .d-linha .btn { min-width: 0; padding: 11px 16px; font-size: .88rem; color: var(--suave); }
+
+/* Fim do treino */
+.mt-fim { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0 20px; text-align: center; max-width: 520px; margin: 0 auto; width: 100%; }
+.mt-fim h2 { margin: 6px 0 4px; font-size: 1.6rem; }
+
+/* Lista de exercícios do treino */
+.de-lista { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.de-item {
+  width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; cursor: pointer;
+  background: var(--fundo); border: 1px solid var(--borda); border-radius: 12px; padding: 10px 12px; color: var(--texto); font-size: .92rem;
+}
+.de-item.atual { border-color: var(--destaque); }
+.de-n { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--borda); font-size: .78rem; color: var(--suave); }
+.de-item.ok .de-n { background: var(--verde); border-color: var(--verde); color: #0b1a10; }
+.de-nome { flex: 1; min-width: 0; }
+.de-nome small { display: block; color: var(--suave); font-size: .75rem; }
+.de-st { font-size: .72rem; color: var(--suave); white-space: nowrap; }
+.de-item.ok .de-st { color: var(--verde); }
+
+@media (max-height: 700px) {
+  .player.cheio .midia { max-height: 26vh; }
+  .mt-serie { margin-top: 10px; font-size: 1.2rem; }
+  .mt-info .entrada { margin-top: 12px; }
+  .pontos { margin-top: 14px; }
+  .mt-rodape .enorme { padding: 14px; }
+  .mt-acoes .btn { padding: 11px 4px; }
+}
+
+.fonte.compacta { flex-wrap: nowrap; margin-top: 6px; }
+.fonte.compacta span { flex: 1; min-width: 0; }
+.modo.descansando .mt-titulo { margin-right: 50px; }
+.mt-info .stepper button { width: 44px; }
+.stepper .valor { padding-top: 0; align-items: center; }
+.mt-info { padding-top: 10px; }
+.mt-info h2 { font-size: 1.25rem; }
+.mt-serie { margin-top: 12px; }
+.mt-info .entrada { margin-top: 14px; }
+.mt-info .campo > span { margin-bottom: 6px; }
+.pontos { margin-top: 16px; }
+
+/* Telas bem baixas (iPhone SE no Safari): tudo da série visível sem rolar */
+@media (max-height: 640px) {
+  .player.cheio .midia { max-height: 19vh; }
+  .player.cheio .fonte { display: none; }
+  .mt-topo { padding-top: 6px; padding-bottom: 6px; }
+  .mt-prog { margin-bottom: 8px; height: 12px; }
+  .mt-info { padding-top: 6px; }
+  .mt-info h2 { font-size: 1.1rem; }
+  .mt-info .variacao select { margin-top: 4px; padding: 6px 10px; }
+  .mt-links { margin-top: 2px; }
+  .mt-serie { margin-top: 4px; font-size: 1.1rem; }
+  .mt-meta { margin-top: 2px; font-size: .88rem; }
+  .mt-ultima { font-size: .8rem; margin-top: 0; }
+  .mt-info .entrada { margin-top: 8px; }
+  .mt-info .campo > span { margin-bottom: 4px; font-size: .8rem; }
+  .mt-info .stepper button, .stepper .valor { height: 44px; }
+  .pontos { margin-top: 10px; }
+  .mt-dica { display: none; }
+  .mt-rodape { padding-top: 6px; }
+  .mt-rodape .enorme { padding: 12px; font-size: 1rem; }
+  .mt-acoes { margin-top: 8px; gap: 8px; }
+  .mt-acoes .btn { padding: 9px 4px; font-size: .76rem; }
+}

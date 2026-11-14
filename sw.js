@@ -8,7 +8,7 @@
 //  - Atualização: a versão nova fica esperando até você tocar em "Atualizar" no aviso do app.
 //
 // Ao publicar mudanças, aumente VERSAO para todos os arquivos serem baixados juntos.
-const VERSAO = 'v6';
+const VERSAO = 'v7';
 const CACHE = `projeto-v-${VERSAO}`;
 const ARQUIVOS = [
   './', 'index.html', 'style.css', 'programa.js', 'app.js', 'manifest.json',
