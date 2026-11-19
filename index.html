@@ -284,6 +284,11 @@
     <div id="telaFim" class="mt-fim" hidden>
       <p class="sobretitulo">Treino completo</p>
       <h2>💪 Mandou bem!</h2>
+      <div class="extras-box">
+        <b>Extras do treino</b>
+        <div id="fimExtras" class="extras-lista"></div>
+        <button id="fimAddExtra" class="btn leve largo">+ Adicionar cardio, abdominal ou prancha</button>
+      </div>
       <div class="cartao-preview"><img id="fimCartao" alt="Card do treino concluído"></div>
       <button id="fimCompartilhar" class="btn leve largo">⤴︎ Compartilhar / salvar imagem</button>
       <div id="fimPulados" class="aviso-card" hidden></div>
@@ -299,6 +304,28 @@
       </div>
     </footer>
   </section>
+
+  <dialog id="dlgExtra">
+    <form id="formExtra" method="dialog">
+      <h2 id="dxTitulo">Adicionar extra</h2>
+      <div id="dxTipos" class="seg" role="tablist">
+        <button type="button" data-tipo="cardio">Cardio</button>
+        <button type="button" data-tipo="abdominal">Abdominal</button>
+        <button type="button" data-tipo="prancha">Prancha</button>
+        <button type="button" data-tipo="outro">Outro</button>
+      </div>
+      <label>Exercício <select name="preset"></select></label>
+      <label id="dxNomeL">Nome <input name="nome" maxlength="40" placeholder="Ex.: Burpee"></label>
+      <div id="dxCampos" class="dx-campos"></div>
+      <label>Observação (opcional) <input name="obs" maxlength="80" placeholder="Ex.: inclinação 8, velocidade 6"></label>
+      <div class="dlg-acoes">
+        <button type="button" id="dxExcluir" class="btn perigo">Excluir</button>
+        <span class="espaco"></span>
+        <button type="button" id="dxCancelar" class="btn leve">Cancelar</button>
+        <button type="submit" class="btn primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="dlgPulados">
     <h2>Você pulou alguns exercícios</h2>

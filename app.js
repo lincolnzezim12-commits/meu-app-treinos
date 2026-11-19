@@ -44,6 +44,7 @@
       descansos: [],   // datas (AAAA-MM-DD) de dias de descanso
       arquivo: [],     // fichas anteriores (antes do Projeto V), guardadas sem alteração
       limpezas: [],    // limpezas automáticas já feitas (cada uma roda uma única vez)
+      ultimosExtras: {}, // últimos valores usados em cada extra (cardio, abdominal, prancha...)
       ultimoBackup: null,
     };
   }
@@ -135,6 +136,7 @@
     if (Array.isArray(dados.arquivo)) base.arquivo = dados.arquivo;
     if (Array.isArray(dados.limpezas)) base.limpezas = dados.limpezas.map(String);
     if (dados.ultimoBackup) base.ultimoBackup = String(dados.ultimoBackup);
+    if (dados.ultimosExtras && typeof dados.ultimosExtras === 'object') base.ultimosExtras = dados.ultimosExtras;
     return base;
   }
 
@@ -480,6 +482,17 @@
       h('div', {}, h('b', { text: String(lista.reduce((a, x) => a + num(x.series), 0)) }), h('span', { text: 'séries' })),
     );
 
+    const ex = lista.flatMap((x) => x.extras || []);
+    const minCardio = ex.filter((y) => y.tipo === 'cardio').reduce((a, y) => a + num(y.minutos), 0);
+    const serAbd = ex.filter((y) => y.tipo === 'abdominal').reduce((a, y) => a + num(y.series), 0);
+    const serPr = ex.filter((y) => y.tipo === 'prancha').reduce((a, y) => a + num(y.series), 0);
+    const outros = ex.filter((y) => y.tipo === 'outro').length;
+    const partesEx = [minCardio ? `cardio ${minCardio} min` : '', serAbd ? `abdominal ${serAbd} séries` : '', serPr ? `prancha ${serPr} séries` : '', outros ? `${outros} outro(s)` : ''].filter(Boolean);
+    let linhaEx = $('sExtras');
+    if (!linhaEx) { linhaEx = h('p', { id: 'sExtras', class: 'nota-peq sem-extras' }); k.after(linhaEx); }
+    linhaEx.textContent = partesEx.length ? `Extras: ${partesEx.join(' · ')}` : '';
+    linhaEx.hidden = !partesEx.length;
+
     // 7 dias
     const dias = $('sDias'); dias.innerHTML = '';
     for (let i = 0; i < 7; i++) {
@@ -512,7 +525,8 @@
     const curta = (seg) => hm(seg) || '—';
     const linhas = lista.map((x) => h('tr', {},
       h('td', {}, h('b', { text: `${diaSemana(diaDoRegistro(x))} ${dm(diaDoRegistro(x))}` }), h('small', { text: horaCurta(x.data) })),
-      h('td', {}, h('b', { text: `Treino ${x.treino + 1}` }), h('small', { text: x.nome || '' })),
+      h('td', {}, h('b', { text: `Treino ${x.treino + 1}` }), h('small', { text: x.nome || '' }),
+        Array.isArray(x.extras) && x.extras.length ? h('small', { class: 'tab-extra', text: `+ ${x.extras.map((y) => y.nome).join(', ')}` }) : null),
       h('td', {}, h('b', { text: curta(x.duracao) })),
       h('td', {}, h('b', { text: String(num(x.series)) }), x.seriesPlanejadas ? h('small', { text: `de ${x.seriesPlanejadas}` }) : null),
       h('td', {}, h('b', { text: x.volume ? fmtKg(x.volume) : '—' }), x.volume ? h('small', { text: 'kg' }) : null)));
@@ -608,6 +622,7 @@
       else partes.push(`${x.feitos}/${x.total} exerc.`);
       if (x.duracao) partes.push(mmss(x.duracao));
       if (x.volume) partes.push(`${fmtKg(x.volume)} kg`);
+      if (Array.isArray(x.extras) && x.extras.length) partes.push(`+ ${x.extras.map((y) => y.nome).join(', ')}`);
       ul.append(h('li', {}, h('span', { text: partes.join(' · ') }), h('span', { text: dataCurta(x.data) })));
     });
   }
@@ -880,6 +895,8 @@
       const top = e.feitas.reduce((a, b) => (b.kg > a.kg ? b : a));
       linhas.push([e.nome, `${e.feitas.length}/${e.series} · melhor ${fmtSerie(top, e)}`]);
     });
+    const extras = s && Array.isArray(s.extras) ? s.extras.map((x) => ({ ...x })) : [];
+    extras.forEach((x) => linhas.push([`+ ${x.nome}`, medidaExtra(x)]));
     const planejadas = t.exercicios.reduce((a, e) => a + e.series, 0);
     const duracao = s ? Math.round(segundosDeTreino(s)) : 0;
     const anterior = estado.historico.find((x) => x.treino === ti && doPrograma(x)) || null;
@@ -889,6 +906,7 @@
       treino: ti, nome: t.nome, data: agora,
       feitos: t.exercicios.filter(feito).length, total: t.exercicios.length,
       series: nSeries, seriesPlanejadas: planejadas, duracao, volume: Math.round(vol),
+      extras: extras.length ? extras : undefined,
     });
     estado.historico = estado.historico.slice(0, 500);
     t.exercicios.forEach((e) => { e.feitas = []; e.nota = ''; e.puladas = 0; });
@@ -1130,6 +1148,7 @@
         cartaoChave = chave;
         mostrarCartao($('fimCartao'), dados);
       }
+      renderExtrasFim(s);
       const pul = exerciciosPulados(t);
       const av = $('fimPulados');
       av.hidden = !pul.length;
@@ -1282,6 +1301,109 @@
   $('dpFazer').onclick = fazerPulados;
   $('dpFinalizar').onclick = () => { $('dlgPulados').close(); concluirTreino(); };
 
+  // ---------- Extras do treino (cardio, abdominal, prancha, outro) ----------
+  const EXTRAS = {
+    cardio: { rotulo: 'Cardio', presets: ['Esteira', 'Bicicleta', 'Elíptico', 'Escada', 'Remo', 'Corda', 'Caminhada'], campos: [['minutos', 'Minutos', 20, 1]] },
+    abdominal: { rotulo: 'Abdominal', presets: ['Abdominal supra', 'Abdominal infra', 'Abdominal oblíquo', 'Abdominal na máquina', 'Elevação de pernas'], campos: [['series', 'Séries', 3, 1], ['reps', 'Repetições', 15, 1]] },
+    prancha: { rotulo: 'Prancha', presets: ['Prancha frontal', 'Prancha lateral'], campos: [['series', 'Séries', 3, 1], ['segundos', 'Segundos', 30, 5]] },
+    outro: { rotulo: 'Outro', presets: [], campos: [['series', 'Séries', 3, 1], ['reps', 'Repetições', 12, 1], ['minutos', 'Minutos', 0, 1]] },
+  };
+  function medidaExtra(x) {
+    const p = [];
+    if (x.series && x.reps) p.push(`${x.series}×${x.reps}`);
+    else if (x.series && x.segundos) p.push(`${x.series}×${x.segundos}s`);
+    else if (x.series) p.push(`${x.series} séries`);
+    if (x.minutos) p.push(`${x.minutos} min`);
+    return p.join(' · ') || '—';
+  }
+
+  function renderExtrasFim(s) {
+    const box = $('fimExtras'); box.innerHTML = '';
+    (s.extras || []).forEach((x, k) => box.append(h('div', { class: 'extra-item' },
+      h('button', { class: 'extra-info', onclick: () => abrirExtra(k) },
+        h('span', { class: 'extra-tipo', text: EXTRAS[x.tipo] ? EXTRAS[x.tipo].rotulo : 'Extra' }),
+        h('b', { text: x.nome }), h('small', { text: medidaExtra(x) + (x.obs ? ` · ${x.obs}` : '') })),
+      h('button', { class: 'extra-x', 'aria-label': `Remover ${x.nome}`, text: '✕', onclick: () => { s.extras.splice(k, 1); salvar(); renderModo(); } }))));
+    $('fimAddExtra').textContent = (s.extras || []).length ? '+ Adicionar outro extra' : '+ Adicionar cardio, abdominal ou prancha';
+  }
+
+  let extraCtx = null; // { idx|null, tipo }
+  function abrirExtra(idx = null) {
+    const s = sessaoDoAtual();
+    if (!s) return;
+    const x = idx != null ? s.extras[idx] : null;
+    extraCtx = { idx, tipo: x ? x.tipo : 'cardio', valores: x ? { ...x } : null };
+    $('dxTitulo').textContent = x ? 'Editar extra' : 'Adicionar extra';
+    $('dxExcluir').hidden = !x;
+    $('formExtra').obs.value = x ? (x.obs || '') : '';
+    renderFormExtra(x ? x.nome : null);
+    $('dlgExtra').showModal();
+  }
+
+  function renderFormExtra(nomeAtual) {
+    const f = $('formExtra');
+    const cfg = EXTRAS[extraCtx.tipo];
+    document.querySelectorAll('#dxTipos button').forEach((b) => b.classList.toggle('ativo', b.dataset.tipo === extraCtx.tipo));
+    const sel = f.preset; sel.innerHTML = '';
+    cfg.presets.forEach((n) => sel.append(h('option', { value: n, text: n })));
+    sel.append(h('option', { value: '__outro', text: cfg.presets.length ? 'Outro (digitar)…' : 'Digitar nome…' }));
+    const nome = nomeAtual || cfg.presets[0] || '';
+    if (cfg.presets.includes(nome)) { sel.value = nome; f.nome.value = ''; } else { sel.value = '__outro'; f.nome.value = nome; }
+    $('dxNomeL').hidden = sel.value !== '__outro';
+    sel.parentElement.hidden = !cfg.presets.length;
+    preencherCampos(nomeAtual ? extraCtx.valores : null);
+  }
+
+  function preencherCampos(valores) {
+    const f = $('formExtra');
+    const cfg = EXTRAS[extraCtx.tipo];
+    const nome = f.preset.value === '__outro' ? f.nome.value.trim() : f.preset.value;
+    const lembrado = valores || estado.ultimosExtras[nome] || {};
+    const box = $('dxCampos'); box.innerHTML = '';
+    cfg.campos.forEach(([campo, rot, padrao, passo]) => {
+      const inp = h('input', { type: 'number', inputmode: 'numeric', min: '0', step: String(passo), name: campo, 'aria-label': rot });
+      inp.value = lembrado[campo] != null && lembrado[campo] !== '' ? lembrado[campo] : padrao;
+      const mudar = (d) => { inp.value = String(Math.max(0, num(inp.value) + d)); };
+      box.append(h('div', { class: 'campo' }, h('span', { text: rot }),
+        h('div', { class: 'stepper' },
+          h('button', { type: 'button', text: '−', 'aria-label': `Menos ${rot}`, onclick: () => mudar(-passo) }),
+          h('div', { class: 'valor' }, inp),
+          h('button', { type: 'button', text: '+', 'aria-label': `Mais ${rot}`, onclick: () => mudar(passo) }))));
+    });
+  }
+
+  document.querySelectorAll('#dxTipos button').forEach((b) => {
+    b.onclick = () => { extraCtx.tipo = b.dataset.tipo; extraCtx.valores = null; renderFormExtra(null); };
+  });
+  $('formExtra').preset.onchange = () => {
+    $('dxNomeL').hidden = $('formExtra').preset.value !== '__outro';
+    if ($('formExtra').preset.value === '__outro') $('formExtra').nome.focus();
+    preencherCampos(null);
+  };
+  $('formExtra').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    const s = sessaoDoAtual();
+    if (!s) { $('dlgExtra').close(); return; }
+    const nome = (f.preset.value === '__outro' || !EXTRAS[extraCtx.tipo].presets.length ? f.nome.value : f.preset.value).trim();
+    if (!nome) { $('dxNomeL').hidden = false; f.nome.focus(); return; }
+    const x = { tipo: extraCtx.tipo, nome, obs: f.obs.value.trim() || undefined, t: new Date().toISOString() };
+    const lembrar = {};
+    EXTRAS[extraCtx.tipo].campos.forEach(([campo]) => { const v = Math.max(0, Math.round(num(f[campo].value))); if (v) x[campo] = v; lembrar[campo] = v; });
+    if (!x.minutos && !x.series) { alert('Informe os minutos ou as séries.'); return; }
+    estado.ultimosExtras[nome] = lembrar;
+    s.extras = s.extras || [];
+    if (extraCtx.idx != null) s.extras[extraCtx.idx] = x; else s.extras.push(x);
+    salvar(); $('dlgExtra').close(); renderModo();
+  });
+  $('dxCancelar').onclick = () => $('dlgExtra').close();
+  $('dxExcluir').onclick = () => {
+    const s = sessaoDoAtual();
+    if (s && extraCtx.idx != null) { s.extras.splice(extraCtx.idx, 1); salvar(); }
+    $('dlgExtra').close(); renderModo();
+  };
+  $('fimAddExtra').onclick = () => abrirExtra();
+
   // ---------- Card do treino (imagem para salvar/compartilhar) ----------
   let cartaoChave = null;
   let ultimoCartao = null; // dados do último treino finalizado (para o resumo)
@@ -1305,6 +1427,7 @@
         return { nome: e.nome, feitas: e.feitas.length, series: e.series, top: top ? { kg: top.kg, reps: top.reps } : null, suf: SUFIXO_CARGA[tipoCargaDe(e)] };
       }),
       semana: Array.from({ length: 7 }, (_, i) => diasTreino.has(somaDias(ini, i))),
+      extras: s && Array.isArray(s.extras) ? s.extras.map((x) => ({ nome: x.nome, medida: medidaExtra(x) })) : [],
       treinosSemana: treinosSem.size,
       dia: p ? Math.max(0, Math.min(90, difDias(p.inicio, hoje()))) : null,
     };
@@ -1374,8 +1497,10 @@
     let y = 728;
     x.fillStyle = '#d4af37'; x.font = F(800, 22); x.letterSpacing = '4px'; x.fillText('EXERCÍCIOS', 90, y); x.letterSpacing = '0px';
     y += 22;
-    const lista = d.exercicios.slice(0, 7);
-    const linhaH = Math.min(62, Math.floor(330 / Math.max(lista.length, 1)));
+    const extrasC = (d.extras || []).slice(0, 3);
+    const lista = d.exercicios.slice(0, 9 - extrasC.length);
+    const total = lista.length + extrasC.length;
+    const linhaH = Math.min(62, Math.floor(340 / Math.max(total, 1)));
     lista.forEach((e) => {
       y += linhaH;
       x.strokeStyle = 'rgba(255,255,255,.07)'; x.lineWidth = 2; x.beginPath(); x.moveTo(90, y + 18); x.lineTo(W - 90, y + 18); x.stroke();
@@ -1388,6 +1513,13 @@
       x.fillStyle = e.feitas ? '#d4af37' : '#5b616b';
       x.fillText(e.top ? `${e.feitas}× · ${fmtKg(e.top.kg)} ${e.suf.replace('kg', 'kg')}` : 'pulado', W - 90, y);
       x.textAlign = 'left';
+    });
+    extrasC.forEach((e) => {
+      y += linhaH;
+      x.strokeStyle = 'rgba(255,255,255,.07)'; x.lineWidth = 2; x.beginPath(); x.moveTo(90, y + 18); x.lineTo(W - 90, y + 18); x.stroke();
+      x.fillStyle = '#d4af37'; x.font = F(800, 30); x.fillText('+', 90, y);
+      x.fillStyle = '#f3f3f1'; x.font = F(600, 32); x.fillText(cortar(e.nome, 520), 136, y);
+      x.textAlign = 'right'; x.font = F(600, 28); x.fillStyle = '#d4af37'; x.fillText(e.medida, W - 90, y); x.textAlign = 'left';
     });
 
     // Semana

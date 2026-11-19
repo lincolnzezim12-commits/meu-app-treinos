@@ -22,6 +22,9 @@ Funciona no celular e no computador, offline, e salva tudo no próprio aparelho.
   ("Exercício 1 de 6 ▾"). O descanso abre em tela própria com anel de contagem, próximo
   exercício, ±15 s, **Pular descanso**, pausar e reiniciar. Resumo final com duração, séries e
   volume.
+- **Extras do treino** (na tela de fim): cardio (minutos), abdominal (séries × repetições),
+  prancha (séries × segundos) ou outro, com observação. Aparecem no card, no resumo, no
+  histórico e no progresso semanal; o app lembra os últimos valores de cada extra.
 - **Fim do treino**: card premium do treino (V dourado, duração, séries, volume, exercícios e
   semana) em imagem 1080×1350 para **Compartilhar / salvar imagem** (no iPhone: Salvar Imagem,
   Instagram…). Se algum exercício/série foi pulado, ao finalizar o app pergunta se quer fazer agora.

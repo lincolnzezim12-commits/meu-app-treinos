@@ -363,6 +363,21 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   await p.waitForFunction(() => document.getElementById('fimCartao').naturalWidth > 0);
   assert.deepEqual(await p.evaluate(() => [fimCartao.naturalWidth, fimCartao.naturalHeight]), [1080, 1350]);
   assert.ok(!(await p.isHidden('#fimPulados')));
+  // Extras: cardio (minutos) e prancha (séries × segundos)
+  await p.click('#fimAddExtra');
+  await p.waitForSelector('#dlgExtra[open]');
+  assert.equal(await p.inputValue('#formExtra [name=preset]'), 'Esteira');
+  await p.fill('#formExtra [name=minutos]', '20');
+  await p.click('#formExtra button[type=submit]');
+  await p.click('#fimAddExtra');
+  await p.click('#dxTipos [data-tipo=prancha]');
+  await p.fill('#formExtra [name=series]', '3'); await p.fill('#formExtra [name=segundos]', '45');
+  await p.click('#formExtra button[type=submit]');
+  assert.deepEqual(await p.locator('#fimExtras .extra-info small').allTextContents(), ['20 min', '3×45s']);
+  await p.locator('#fimExtras .extra-info').nth(0).click(); // editar
+  await p.fill('#formExtra [name=minutos]', '25'); await p.click('#formExtra button[type=submit]');
+  assert.equal(await p.textContent('#fimExtras .extra-info small'), '25 min');
+  ok('fim do treino: adiciona cardio (Esteira 25 min) e prancha (3×45s), com edição');
   await shot('08-fim-treino');
   await p.click('#mAcao'); // finalizar → pergunta
   await p.waitForSelector('#dlgPulados[open]');
@@ -378,8 +393,14 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   const [img] = await Promise.all([p.waitForEvent('download'), p.click('#rsCompartilhar')]);
   const png = require('fs').readFileSync(await img.path());
   assert.equal(png.toString('ascii', 1, 4), 'PNG'); assert.equal(png.readUInt32BE(16), 1080); assert.equal(png.readUInt32BE(20), 1350);
+  assert.ok((await p.textContent('#rsLista')).includes('+ Esteira'));
   await p.click('#rsOk');
-  ok('“Finalizar mesmo assim” salva; card do treino vira imagem PNG 1080×1350 para salvar/compartilhar');
+  s = await estado();
+  assert.deepEqual(s.historico[0].extras.map((x) => [x.tipo, x.nome, x.minutos || 0, x.series || 0, x.segundos || 0]), [['cardio', 'Esteira', 25, 0, 0], ['prancha', 'Prancha frontal', 0, 3, 45]]);
+  assert.equal(s.ultimosExtras.Esteira.minutos, 25);
+  assert.match(await p.textContent('#sExtras'), /cardio 25 min · prancha 3 séries/);
+  assert.ok((await p.textContent('#historico')).includes('+ Esteira, Prancha frontal'));
+  ok('“Finalizar mesmo assim” salva (com extras no histórico e na semana); card vira imagem PNG 1080×1350');
 
   // 10) Offline: com o service worker ativo, o app abre sem internet
   await p.evaluate(() => navigator.serviceWorker.ready);
