@@ -225,6 +225,29 @@
     estado.limpezas.push(LIMPEZA_TESTE);
     salvar();
   }
+  // Pedido do usuário (19/11/2026): recomeçar o Projeto V hoje, sem os treinos feitos antes.
+  const REINICIO = 'reinicio-2026-11-19';
+  const INICIO_NOVO = '2026-11-19';
+  const LIMPEZAS_CONHECIDAS = [LIMPEZA_TESTE, REINICIO];
+  function reiniciarProjeto() {
+    if (estado.limpezas.includes(REINICIO)) return;
+    const mudaInicio = !estado.perfil || estado.perfil.inicio !== INICIO_NOVO;
+    if (temHistorico(estado) || estado.sessao || mudaInicio) {
+      const resumo = { treinos: estado.historico.length, exercicios: Object.values(estado.log).reduce((a, l) => a + l.length, 0), descansos: estado.descansos.length, motivo: 'reinicio', inicioAnterior: estado.perfil ? estado.perfil.inicio : null };
+      if (temHistorico(estado) || estado.sessao) {
+        try { localStorage.setItem(CHAVE_COPIA, JSON.stringify({ data: new Date().toISOString(), resumo, estado })); } catch (_) { /* sem espaço */ }
+      }
+      limparHistorico();
+      estado.perfil = { ...(estado.perfil || PROGRAMA.perfil), inicio: INICIO_NOVO };
+      const dia0 = estado.avaliacoes.find((a) => a.marco === 0);
+      if (dia0) dia0.data = INICIO_NOVO;
+      estado.atual = 0;
+    }
+    LIMPEZAS_CONHECIDAS.forEach((id) => { if (!estado.limpezas.includes(id)) estado.limpezas.push(id); });
+    salvar();
+  }
+  const marcarLimpezas = () => LIMPEZAS_CONHECIDAS.forEach((id) => { if (!estado.limpezas.includes(id)) estado.limpezas.push(id); });
+
   function lerCopia() { try { return JSON.parse(localStorage.getItem(CHAVE_COPIA)); } catch (_) { return null; } }
 
   // ---------- Utilidades ----------
@@ -514,9 +537,10 @@
       : 'Nenhum backup feito ainda neste aparelho.';
     const c = lerCopia();
     $('dLimpeza').hidden = !c;
+    if (c) $('dLimpeza').querySelector('b').textContent = c.resumo && c.resumo.motivo === 'reinicio' ? 'Projeto recomeçado' : 'Histórico de teste apagado';
     if (c) {
       const r = c.resumo || {};
-      $('dLimpezaTxt').textContent = `Em ${dataLonga(c.data)} o app apagou o histórico de teste (${r.treinos || 0} treino(s) concluído(s), ${r.exercicios || 0} registro(s) de exercício, ${r.descansos || 0} dia(s) de descanso). Uma cópia ficou guardada neste aparelho caso você queira desfazer.`;
+      $('dLimpezaTxt').textContent = `Em ${dataLonga(c.data)} o app ${r.motivo === 'reinicio' ? `recomeçou o Projeto V em ${dataLonga(INICIO_NOVO)} e apagou os treinos anteriores` : 'apagou o histórico de teste'} (${r.treinos || 0} treino(s) concluído(s), ${r.exercicios || 0} registro(s) de exercício, ${r.descansos || 0} dia(s) de descanso). Uma cópia ficou guardada neste aparelho caso você queira desfazer.`;
     }
   }
 
@@ -547,7 +571,7 @@
     const c = lerCopia();
     if (!c || !confirm('Restaurar o histórico que foi apagado? (o que você registrou depois da limpeza será substituído)')) return;
     estado = normalizar(c.estado);
-    if (!estado.limpezas.includes(LIMPEZA_TESTE)) estado.limpezas.push(LIMPEZA_TESTE);
+    marcarLimpezas();
     salvar();
     try { localStorage.removeItem(CHAVE_COPIA); } catch (_) { /* ignora */ }
     renderVista();
@@ -588,10 +612,23 @@
     });
   }
 
+  // Séries registradas mas não finalizadas (sem treino em andamento) são descartadas
+  // ao começar do zero, para o treino sempre começar no exercício 1, na ordem da ficha.
+  function zerarProgresso(ti) {
+    estado.treinos[ti].exercicios.forEach((e) => { e.feitas = []; e.puladas = 0; e.nota = ''; });
+  }
   function iniciarTreino(i) {
     const s = estado.sessao;
-    if (s && s.treino !== i && !confirm(`O ${rotulo(s.treino)} está em andamento. Começar o ${rotulo(i)}? (as séries já feitas continuam salvas)`)) return;
+    if (s && s.treino !== i) {
+      if (!confirm(`O ${rotulo(s.treino)} está em andamento e ainda não foi finalizado. Descartar e começar o ${rotulo(i)}?`)) return;
+      zerarProgresso(s.treino);
+      estado.sessao = null;
+    }
     estado.atual = i;
+    if (!estado.sessao) {
+      const pendentes = estado.treinos[i].exercicios.reduce((a, e) => a + e.feitas.length + (e.puladas || 0), 0);
+      if (pendentes && !confirm(`Existe um ${rotulo(i)} não finalizado (${pendentes} série(s)). Continuar de onde parou?\n\nOK = continuar · Cancelar = começar do exercício 1`)) zerarProgresso(i);
+    }
     salvar();
     abrirModo();
   }
@@ -635,7 +672,7 @@
   }
 
   function itemExercicio(e, idx, total) {
-    const info = h('div', { class: 'info', onclick: () => abrirModo(idx) },
+    const info = h('div', { class: 'info', onclick: () => abrirDetalhes(e.id, 'como') },
       h('div', { class: 'titulo', text: e.nome }),
       temVariacoes(e) ? h('div', { class: 'detalhes', text: `Variação: ${variacaoDe(e).nome}` }) : null,
       h('div', { class: 'detalhes', text: descricao(e) }),
@@ -927,9 +964,8 @@
     let s = sessaoDoAtual();
     if (!s) {
       s = estado.sessao = { treino: estado.atual, inicio: Date.now(), ex: 0, fase: 'serie', adiados: [], pausaTotal: 0 };
-      const p = primeiroPendente(t);
-      if (exIdx != null) s.ex = exIdx;
-      else if (p === -1) s.fase = 'completo';
+      const p = primeiroPendente(t, 0); // na ordem da ficha, a partir do exercício 1
+      if (p === -1) { s.fase = 'completo'; s.fimTreino = Date.now(); }
       else s.ex = p;
     } else if (exIdx != null && exIdx !== s.ex) {
       irExercicio(exIdx);
@@ -2117,7 +2153,7 @@
       try { await fotosDB.put(k, await (await fetch(url)).blob()); fotosOk++; } catch (_) { /* segue */ }
     }
     estado = normalizar(dados);
-    if (!estado.limpezas.includes(LIMPEZA_TESTE)) estado.limpezas.push(LIMPEZA_TESTE); // não apagar o que foi importado
+    marcarLimpezas(); // não apagar o que foi importado
     salvar(); fecharModo(); renderVista();
     alert(`Backup importado${fotosOk ? ` (com ${fotosOk} foto(s))` : ''}.`);
   };
@@ -2153,6 +2189,7 @@
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); // pede para o navegador não apagar os dados
 
   instalarProjetoV();
+  reiniciarProjeto();
   limpezaDoHistoricoDeTeste();
   if (instalado()) document.documentElement.classList.add('instalado');
   renderVista();

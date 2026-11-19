@@ -60,10 +60,11 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
 
   // 1b) Limpeza única do histórico de teste (pedido do usuário) + desfazer + apagar manual
   assert.equal(s.historico.length, 0); assert.deepEqual(s.log, {}); assert.equal(s.descansos.length, 0);
-  assert.ok(s.limpezas.includes('historico-teste-2026-11'));
+  assert.ok(s.limpezas.includes('historico-teste-2026-11')); assert.ok(s.limpezas.includes('reinicio-2026-11-19'));
+  assert.equal(s.sessao, null);
   assert.ok(await p.evaluate(() => !!localStorage.getItem('projeto-v-copia-antes-limpeza')));
   assert.ok(!(await p.isHidden('#dLimpeza')));
-  ok('histórico de teste apagado na abertura, com cópia de segurança');
+  ok('projeto recomeça em 19/11/2026: treinos anteriores apagados na abertura, com cópia de segurança');
   await p.click('#dLimpezaDesfazer');
   s = await estado();
   assert.equal(s.historico.length, 1); assert.equal(s.log.a.length, 1);
@@ -82,7 +83,8 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
     localStorage.setItem('meus-treinos-v1', JSON.stringify(st));
   });
   await p.reload(); s = await estado();
-  assert.deepEqual(s.perfil, { inicio: '2026-11-13', peso: 80, altura: 172, idade: 26 });
+  assert.deepEqual(s.perfil, { inicio: '2026-11-19', peso: 80, altura: 172, idade: 26 });
+  assert.equal(s.avaliacoes[0].data, '2026-11-19');
   assert.equal(s.avaliacoes.length, 1); assert.equal(s.avaliacoes[0].marco, 0); assert.equal(s.avaliacoes[0].peso, 80);
   assert.equal(s.avaliacoes[0].cintura, '');
   ok('perfil e avaliação do Dia 0 (só peso 80 kg; nenhuma medida inventada)');
@@ -317,6 +319,40 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   assert.equal(await p.locator('.aba.feita-semana').count(), 2);
   await p.click('.menu [data-ir=vInicio]');
   ok(`semana: dias verdes com T1/T2, tabela com duração e total (1h55), check verde nos treinos feitos, semana passada separada`);
+
+  // 9b2) Treino sempre na sequência da ficha
+  {
+    await p.click('.menu [data-ir=vTreinos]');
+    await p.locator('.aba').nth(0).click();
+    await p.locator('#lista .item').nth(2).locator('.info').click(); // tocar num exercício não inicia o treino no meio
+    assert.ok(!(await p.isHidden('#det'))); assert.ok(await p.isHidden('#modo'));
+    await p.click('#dFechar');
+    await p.click('#btnComecar');
+    assert.equal(await p.textContent('#mNome'), 'Puxada alta pronada');
+    await irParaExercicio(3); await p.click('#mAcao'); await p.click('#mPular'); // série no meio do treino
+    await p.click('#mFechar');
+    // começar outro treino descarta o Treino 1 não finalizado
+    await p.click('.menu [data-ir=vInicio]');
+    await p.locator('.card-treino').nth(1).locator('text=INICIAR TREINO').click();
+    assert.equal(await p.textContent('#mNome'), 'Supino inclinado com halteres');
+    await p.click('#mFechar');
+    s = await estado();
+    assert.equal(s.treinos[0].exercicios.reduce((a, e) => a + e.feitas.length, 0), 0);
+    // e voltar ao Treino 1 começa do exercício 1, seguindo a ordem
+    await p.locator('.card-treino').nth(0).locator('text=INICIAR TREINO').click();
+    const ordem = [];
+    for (let k = 0; k < 3; k++) {
+      ordem.push(await p.textContent('#mNome'));
+      const n = (await estado()).treinos[0].exercicios[k].series;
+      for (let j = 0; j < n; j++) { await p.click('#mAcao'); if (!(await p.isHidden('#telaDescanso'))) await p.click('#mPular'); }
+    }
+    assert.deepEqual(ordem, ['Puxada alta pronada', 'Remada articulada', 'Puxada neutra']);
+    assert.equal(await p.textContent('#mNome'), 'Pulldown braço estendido');
+    await p.click('#mFechar');
+    await p.evaluate(() => { const st = JSON.parse(localStorage.getItem('meus-treinos-v1')); st.sessao = null; st.treinos.forEach((t) => t.exercicios.forEach((e) => { e.feitas = []; e.puladas = 0; })); localStorage.setItem('meus-treinos-v1', JSON.stringify(st)); });
+    await p.reload();
+    ok('INICIAR TREINO começa no exercício 1 e segue a ordem da ficha (1 → 2 → 3 → 4); treino abandonado é descartado');
+  }
 
   // 9c) Fim do treino: card para compartilhar + pergunta sobre exercícios pulados
   await p.locator('.card-treino').nth(4).locator('text=INICIAR TREINO').click();

@@ -522,7 +522,7 @@
     nome: 'Projeto V 4.0',
     subtitulo: 'Hipertrofia e definição',
     duracaoDias: 90,
-    perfil: { inicio: '2026-11-13', peso: 80, altura: 172, idade: 26 },
+    perfil: { inicio: '2026-11-19', peso: 80, altura: 172, idade: 26 },
     treinos: [
       {
         nome: 'Costas + Bíceps',

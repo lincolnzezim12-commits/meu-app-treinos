@@ -52,13 +52,20 @@ Funciona no celular e no computador, offline, e salva tudo no próprio aparelho.
 - No iPhone, o app instalado na Tela de Início tem armazenamento **separado** do Safari.
   Para levar dados de um para o outro: Exportar backup num, Importar backup no outro.
 
-## Histórico de teste
+## Início do projeto e limpezas
 
-Na versão de 14/11/2026 o app apaga uma única vez, ao abrir, o histórico de treinos feito
-durante os testes (treinos concluídos, cargas, dias de descanso). Ficha, vídeos e evolução
-corporal são mantidos. Uma cópia fica guardada no aparelho e pode ser restaurada em
-Início → Dados e backup → **Desfazer** (ou descartada). Também há o botão
-**Apagar histórico de treinos** para fazer isso manualmente.
+O Projeto V começa em **19/11/2026** (Dia 0). Ao abrir esta versão, o app faz uma única vez:
+apaga os treinos feitos antes (treinos concluídos, cargas, dias de descanso e treino em andamento),
+muda a data de início para 19/11/2026 e move a avaliação do Dia 0 para essa data. Ficha, vídeos e
+demais avaliações são mantidos. Uma cópia fica no aparelho: Início → Dados e backup →
+**Desfazer** (ou **Descartar cópia**). O botão **Apagar histórico de treinos** faz a limpeza manualmente.
+
+## Ordem dos exercícios
+
+**INICIAR TREINO** sempre começa no exercício 1 e segue a ordem da ficha. Tocar num exercício da
+ficha abre "Como fazer" (não inicia o treino no meio). Se um treino ficou sem finalizar, o app
+pergunta se quer continuar de onde parou ou começar do exercício 1; começar outro treino descarta
+o que não foi finalizado.
 
 ## PWA / iPhone
 
