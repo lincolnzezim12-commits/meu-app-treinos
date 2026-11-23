@@ -63,6 +63,13 @@ muda a data de início para 19/11/2026 e move a avaliação do Dia 0 para essa d
 demais avaliações são mantidos. Uma cópia fica no aparelho: Início → Dados e backup →
 **Desfazer** (ou **Descartar cópia**). O botão **Apagar histórico de treinos** faz a limpeza manualmente.
 
+## Semana e sequência dos treinos
+
+A semana vai de segunda a domingo. Toda **segunda-feira às 00h** o progresso semanal zera e o
+**treino atual volta para o Treino 1**. Durante a semana, o próximo é o primeiro treino ainda não
+feito depois do último feito (T1 → T2 → T3 → T4 → T5). Treino aberto e não finalizado da semana
+anterior é descartado na virada; o histórico das semanas anteriores continua salvo (‹ ›).
+
 ## Ordem dos exercícios
 
 **INICIAR TREINO** sempre começa no exercício 1 e segue a ordem da ficha. Tocar num exercício da

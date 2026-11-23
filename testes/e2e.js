@@ -303,7 +303,7 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   await p.reload();
   assert.deepEqual(await p.locator('#sDias .sd-nome').allTextContents(), ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']);
   assert.equal(await p.locator('#sDias .sem-dia.treinou').count(), info.mesmoDia ? 1 : 2);
-  assert.equal(await p.textContent('#sDias .sem-dia:first-child .sd-treino'), info.mesmoDia ? 'T1 T2' : 'T1');
+  assert.equal(await p.textContent('#sDias .sem-dia:first-child .sd-treino'), info.mesmoDia ? 'T2 T1' : 'T1');
   assert.equal(await p.locator('#sTabela tbody tr').count(), 2);
   assert.equal(await p.textContent('#sTabela tfoot td:nth-child(3)'), '1h55');
   assert.equal(await p.textContent('#sKpis div:nth-child(2) b'), '1h55');
@@ -319,6 +319,42 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   assert.equal(await p.locator('.aba.feita-semana').count(), 2);
   await p.click('.menu [data-ir=vInicio]');
   ok(`semana: dias verdes com T1/T2, tabela com duração e total (1h55), check verde nos treinos feitos, semana passada separada`);
+
+  // 9b1) Virada da semana: segunda volta ao Treino 1 (semana passada não conta para a sequência)
+  {
+    await p.evaluate(() => {
+      const st = JSON.parse(localStorage.getItem('meus-treinos-v1'));
+      const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const seg = new Date(); seg.setHours(10, 0, 0, 0); seg.setDate(seg.getDate() - ((seg.getDay() + 6) % 7));
+      const passada = (n) => { const d = new Date(seg); d.setDate(d.getDate() - 7 + n); return d; };
+      const reg = (d, t) => ({ programa: 'projeto-v-4.0', treino: t, nome: st.treinos[t].nome, data: d.toISOString(), series: 20, seriesPlanejadas: 21, duracao: 3600, volume: 4000, feitos: 6, total: 6 });
+      window.__guardado = JSON.stringify(st);
+      st.historico = [reg(passada(2), 1), reg(passada(0), 0)];
+      st.treinos[2].exercicios[0].feitas = [{ reps: 8, kg: 60 }];
+      st.sessao = { treino: 2, inicio: passada(4).getTime(), ex: 0, fase: 'serie', adiados: [], pausaTotal: 0 };
+      st.atual = 2;
+      st.semanaAtual = iso(passada(0));
+      localStorage.setItem('meus-treinos-v1', JSON.stringify(st));
+    });
+    await p.reload();
+    s = await estado();
+    assert.ok((await p.textContent('#iAtualNome')).startsWith('TREINO 1'));
+    assert.equal(await p.textContent('#iAtualBtn'), 'INICIAR TREINO');
+    assert.equal(s.sessao, null); assert.equal(s.treinos[2].exercicios[0].feitas.length, 0);
+    assert.equal(s.historico.length, 2); // histórico da semana passada continua salvo
+    assert.equal(await p.locator('#sDias .sem-dia.treinou').count(), 0);
+    // durante a semana: fez T1 → próximo é T2
+    await p.evaluate(() => {
+      const st = JSON.parse(localStorage.getItem('meus-treinos-v1'));
+      st.historico.unshift({ programa: 'projeto-v-4.0', treino: 0, nome: st.treinos[0].nome, data: new Date().toISOString(), series: 21, seriesPlanejadas: 21, duracao: 3600, volume: 4000, feitos: 6, total: 6 });
+      localStorage.setItem('meus-treinos-v1', JSON.stringify(st));
+    });
+    await p.reload();
+    assert.ok((await p.textContent('#iAtualNome')).startsWith('TREINO 2'));
+    await p.evaluate(() => { const st = JSON.parse(localStorage.getItem('meus-treinos-v1')); st.historico = []; localStorage.setItem('meus-treinos-v1', JSON.stringify(st)); });
+    await p.reload();
+    ok('virada da semana: na segunda volta ao Treino 1, descarta treino aberto da semana passada e mantém o histórico');
+  }
 
   // 9b2) Treino sempre na sequência da ficha
   {

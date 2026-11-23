@@ -45,6 +45,7 @@
       arquivo: [],     // fichas anteriores (antes do Projeto V), guardadas sem alteração
       limpezas: [],    // limpezas automáticas já feitas (cada uma roda uma única vez)
       ultimosExtras: {}, // últimos valores usados em cada extra (cardio, abdominal, prancha...)
+      semanaAtual: null, // segunda-feira (AAAA-MM-DD) da semana em que o app foi usado por último
       ultimoBackup: null,
     };
   }
@@ -137,6 +138,7 @@
     if (Array.isArray(dados.limpezas)) base.limpezas = dados.limpezas.map(String);
     if (dados.ultimoBackup) base.ultimoBackup = String(dados.ultimoBackup);
     if (dados.ultimosExtras && typeof dados.ultimosExtras === 'object') base.ultimosExtras = dados.ultimosExtras;
+    if (dados.semanaAtual) base.semanaAtual = String(dados.semanaAtual);
     return base;
   }
 
@@ -382,10 +384,34 @@
     }
     return i;
   }
+  // Sequência da SEMANA: toda segunda recomeça no Treino 1. Dentro da semana, o próximo é o
+  // primeiro treino ainda não feito depois do último feito (T1 → T2 → T3 → T4 → T5).
   function proximoDaSequencia() {
-    const ultimo = estado.programa ? estado.historico.find(doPrograma) : estado.historico[0];
-    if (!ultimo) return Math.max(0, estado.treinos.findIndex((t) => t.exercicios.length));
-    return proximoTreinoApos(ultimo.treino);
+    const primeiro = Math.max(0, estado.treinos.findIndex((t) => t.exercicios.length));
+    const semana = feitosEstaSemana();
+    if (!semana.length) return primeiro;
+    const feitos = new Set(semana.map((x) => x.treino));
+    const ult = semana[semana.length - 1].treino;
+    for (let k = 1; k <= TOTAL_TREINOS; k++) {
+      const j = (ult + k) % TOTAL_TREINOS;
+      if (estado.treinos[j].exercicios.length && !feitos.has(j)) return j;
+    }
+    return proximoTreinoApos(ult); // os 5 já feitos na semana: segue a sequência
+  }
+
+  // Virada da semana (segunda-feira 00h): treino atual volta ao Treino 1 e o que ficou
+  // aberto/sem finalizar na semana passada é descartado. O histórico não é apagado.
+  function viradaDaSemana() {
+    const seg = inicioSemana(hoje());
+    if (estado.semanaAtual === seg) return false;
+    const s = estado.sessao;
+    if (s && isoDia(new Date(s.inicio)) < seg) estado.sessao = null;
+    estado.treinos.forEach((t, i) => { if (!estado.sessao || estado.sessao.treino !== i) zerarProgresso(i); });
+    estado.atual = estado.sessao ? estado.sessao.treino : proximoDaSequencia();
+    semanaOffset = 0;
+    estado.semanaAtual = seg;
+    salvar();
+    return true;
   }
 
   function renderInicio() {
@@ -543,7 +569,12 @@
   $('sAnterior').onclick = () => { semanaOffset--; renderSemana(); };
   $('sProxima').onclick = () => { if (semanaOffset < 0) { semanaOffset++; renderSemana(); } };
   // Se o app ficar aberto e virar a semana (segunda 00h), atualiza ao voltar para ele.
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && vista === 'vInicio') renderInicio(); });
+  // Se o app ficou aberto e virou a semana, aplica a virada ao voltar para ele.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (viradaDaSemana()) { if (modoAberto()) fecharModo(); renderVista(); }
+    else if (vista === 'vInicio') renderInicio();
+  });
 
   function renderDados() {
     $('dUltimoBackup').textContent = estado.ultimoBackup
@@ -911,7 +942,7 @@
     estado.historico = estado.historico.slice(0, 500);
     t.exercicios.forEach((e) => { e.feitas = []; e.nota = ''; e.puladas = 0; });
     estado.sessao = null;
-    estado.atual = proximoTreinoApos(ti);
+    estado.atual = proximoDaSequencia();
     salvar();
     fecharModo();
     renderVista();
@@ -2322,6 +2353,7 @@
 
   instalarProjetoV();
   reiniciarProjeto();
+  viradaDaSemana();
   limpezaDoHistoricoDeTeste();
   if (instalado()) document.documentElement.classList.add('instalado');
   renderVista();
