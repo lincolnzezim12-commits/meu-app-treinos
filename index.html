@@ -61,6 +61,10 @@
         <h2 id="iAtualNome"></h2>
         <p id="iAtualInfo" class="nota-peq"></p>
         <button id="iAtualBtn" class="btn primario enorme">INICIAR TREINO</button>
+        <div class="linha-btns atual-acoes">
+          <button id="iTrocar" class="btn leve">⇄ Trocar treino</button>
+          <button id="iCancelar" class="btn perigo" hidden>✕ Cancelar treino</button>
+        </div>
         <button id="iDescanso" class="btn leve largo">Registrar dia de descanso</button>
       </div>
 
@@ -335,9 +339,20 @@
     <button id="dpFinalizar" class="btn leve largo">Finalizar mesmo assim</button>
   </dialog>
 
+  <dialog id="dlgTrocar">
+    <h2 id="dtTitulo">Qual treino você vai fazer hoje?</h2>
+    <p class="nota-peq">A troca vale só para hoje. O treino que ficar para depois continua pendente na semana.</p>
+    <div id="dtLista" class="dt-lista"></div>
+    <button id="dtFechar" class="btn leve largo">Agora não</button>
+  </dialog>
+
   <dialog id="dlgExercicios">
     <h2 id="deTitulo">Exercícios</h2>
     <ol id="deLista" class="de-lista"></ol>
+    <div class="linha-btns de-acoes">
+      <button id="deTrocar" class="btn leve">⇄ Trocar treino</button>
+      <button id="deCancelar" class="btn perigo">✕ Cancelar treino</button>
+    </div>
     <div class="dlg-acoes"><span class="espaco"></span><button id="deFechar" class="btn leve">Fechar</button></div>
   </dialog>
 

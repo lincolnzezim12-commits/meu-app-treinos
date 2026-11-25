@@ -695,3 +695,20 @@ button.ponto { cursor: pointer; }
 form .dx-campos input { display: block; width: 100%; margin: 0; padding: 0; border: none; background: none; text-align: center; font-weight: 700; }
 .sem-extras { margin-top: 10px; color: var(--destaque); }
 .tab-extra { color: var(--destaque) !important; }
+
+/* Trocar / cancelar treino */
+.atual-acoes { margin-top: 10px; }
+.atual-acoes .btn { padding: 11px 8px; font-size: .88rem; }
+.de-acoes { margin-top: 14px; }
+.de-acoes .btn { padding: 11px 6px; font-size: .86rem; }
+.dt-lista { display: grid; gap: 8px; margin: 12px 0 6px; }
+.dt-item {
+  width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; cursor: pointer;
+  padding: 12px; border-radius: 14px; background: var(--fundo); border: 1px solid var(--borda); color: var(--texto); font-size: .95rem;
+}
+.dt-item.atual { border-color: var(--destaque); }
+.dt-n { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--borda); color: var(--suave); font-weight: 700; font-size: .85rem; }
+.dt-item.feito .dt-n { background: var(--verde); border-color: var(--verde); color: #0b1a10; }
+.dt-nome { flex: 1; min-width: 0; font-weight: 600; }
+.dt-nome small { display: block; font-weight: 400; color: var(--suave); font-size: .76rem; margin-top: 2px; }
+.dt-item.feito .dt-nome small { color: var(--verde); }

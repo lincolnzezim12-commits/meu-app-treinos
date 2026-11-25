@@ -180,8 +180,8 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
   assert.equal(logSup[0].series[0].kg, 20); assert.ok(logSup[0].series[0].t);
   assert.equal(s.log.a.length, 2);
   assert.equal(await p.textContent('#iTreinos'), '1');
-  assert.ok((await p.textContent('#iAtualNome')).startsWith('TREINO 3'));
-  ok('dados continuam salvos após recarregar; próximo da sequência = Treino 3');
+  assert.ok((await p.textContent('#iAtualNome')).startsWith('TREINO 1'));
+  ok('dados continuam salvos após recarregar; próximo = primeiro treino pendente na semana (Treino 1)');
   await p.locator('.card-treino').nth(1).locator('text=INICIAR TREINO').click();
   await p.click('#mAcao'); await p.click('#mFechar');
   await p.click('.menu [data-ir=vTreinos]'); await p.click('#btnConcluir');
@@ -354,6 +354,54 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
     await p.evaluate(() => { const st = JSON.parse(localStorage.getItem('meus-treinos-v1')); st.historico = []; localStorage.setItem('meus-treinos-v1', JSON.stringify(st)); });
     await p.reload();
     ok('virada da semana: na segunda volta ao Treino 1, descarta treino aberto da semana passada e mantém o histórico');
+  }
+
+  // 9b1b) Cancelar treino e trocar o treino de hoje
+  {
+    await p.evaluate(() => {
+      const st = JSON.parse(localStorage.getItem('meus-treinos-v1'));
+      const seg = new Date(); seg.setHours(9, 0, 0, 0); seg.setDate(seg.getDate() - ((seg.getDay() + 6) % 7));
+      const reg = (t, d) => ({ programa: 'projeto-v-4.0', treino: t, nome: st.treinos[t].nome, data: d.toISOString(), series: 20, seriesPlanejadas: 21, duracao: 3600, volume: 4000, feitos: 6, total: 6 });
+      const d2 = new Date(seg.getTime() + 60000);
+      st.historico = [reg(1, d2), reg(0, seg)]; st.sessao = null; st.escolhido = null;
+      localStorage.setItem('meus-treinos-v1', JSON.stringify(st));
+    });
+    await p.reload();
+    assert.ok((await p.textContent('#iAtualNome')).startsWith('TREINO 3')); // T1 e T2 feitos → Pernas
+    await p.click('#iAtualBtn');
+    assert.equal(await p.textContent('#mNome'), 'Agachamento ou hack');
+    await p.click('#mAcao'); await p.click('#mPular'); await p.click('#mFechar');
+    assert.ok(!(await p.isHidden('#iCancelar')));
+    await p.click('#iCancelar');
+    await p.waitForSelector('#dlgTrocar[open]');
+    assert.match(await p.textContent('#dtTitulo'), /Treino 3 cancelado/);
+    s = await estado();
+    assert.equal(s.sessao, null); assert.equal(s.treinos[2].exercicios[0].feitas.length, 0); assert.equal(s.historico.length, 2);
+    await p.locator('#dtLista .dt-item').nth(3).click(); // Treino 4
+    assert.ok((await p.textContent('#iAtualNome')).startsWith('TREINO 4'));
+    assert.ok(await p.isHidden('#iCancelar'));
+    ok('Cancelar treino descarta as séries (nada no histórico) e abre “qual treino hoje?”; troca para o Treino 4');
+    // cancelar também pela lista de exercícios dentro do treino
+    await p.click('#iAtualBtn');
+    assert.equal(await p.textContent('#mNome'), 'Desenvolvimento com halteres');
+    await p.click('#mPosicao'); await p.click('#deCancelar');
+    await p.waitForSelector('#dlgTrocar[open]'); await p.click('#dtFechar');
+    assert.ok(await p.isHidden('#modo'));
+    assert.ok((await p.textContent('#iAtualNome')).startsWith('TREINO 3')); // escolha cancelada → volta à sequência
+    // trocar pelo T4, fazer o T4: Pernas continua pendente e volta como treino do dia
+    await p.click('#iTrocar'); await p.locator('#dtLista .dt-item').nth(3).click();
+    await p.click('#iAtualBtn');
+    await p.click('#mAcao'); await p.click('#mPular'); await p.click('#mFechar');
+    await p.click('.menu [data-ir=vTreinos]'); await p.click('#btnConcluir'); await p.waitForSelector('#dlgResumo[open]'); await p.click('#rsOk');
+    await p.click('.menu [data-ir=vInicio]');
+    assert.ok((await p.textContent('#iAtualNome')).startsWith('TREINO 3'));
+    // escolha vale só no dia
+    await p.evaluate(() => { const st = JSON.parse(localStorage.getItem('meus-treinos-v1')); st.escolhido = { treino: 4, dia: '2000-01-01' }; localStorage.setItem('meus-treinos-v1', JSON.stringify(st)); });
+    await p.reload();
+    assert.ok((await p.textContent('#iAtualNome')).startsWith('TREINO 3'));
+    await p.evaluate(() => { const st = JSON.parse(localStorage.getItem('meus-treinos-v1')); st.historico = []; st.escolhido = null; localStorage.setItem('meus-treinos-v1', JSON.stringify(st)); });
+    await p.reload();
+    ok('Trocar treino: faz o T4 hoje e Pernas (T3) continua pendente como próximo; a troca vale só no dia');
   }
 
   // 9b2) Treino sempre na sequência da ficha

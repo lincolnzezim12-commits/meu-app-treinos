@@ -46,6 +46,7 @@
       limpezas: [],    // limpezas automáticas já feitas (cada uma roda uma única vez)
       ultimosExtras: {}, // últimos valores usados em cada extra (cardio, abdominal, prancha...)
       semanaAtual: null, // segunda-feira (AAAA-MM-DD) da semana em que o app foi usado por último
+      escolhido: null,   // { treino, dia }: treino escolhido para hoje com "Trocar treino" (vale só no dia)
       ultimoBackup: null,
     };
   }
@@ -139,6 +140,7 @@
     if (dados.ultimoBackup) base.ultimoBackup = String(dados.ultimoBackup);
     if (dados.ultimosExtras && typeof dados.ultimosExtras === 'object') base.ultimosExtras = dados.ultimosExtras;
     if (dados.semanaAtual) base.semanaAtual = String(dados.semanaAtual);
+    if (dados.escolhido && Number.isInteger(dados.escolhido.treino) && dados.escolhido.dia) base.escolhido = { treino: dados.escolhido.treino, dia: String(dados.escolhido.dia) };
     return base;
   }
 
@@ -386,17 +388,24 @@
   }
   // Sequência da SEMANA: toda segunda recomeça no Treino 1. Dentro da semana, o próximo é o
   // primeiro treino ainda não feito depois do último feito (T1 → T2 → T3 → T4 → T5).
+  // O próximo é o primeiro treino (T1 → T5) ainda não feito nesta semana. Assim, um treino
+  // trocado (ex.: Pernas deixado para amanhã) continua pendente e volta a ser sugerido.
   function proximoDaSequencia() {
     const primeiro = Math.max(0, estado.treinos.findIndex((t) => t.exercicios.length));
     const semana = feitosEstaSemana();
     if (!semana.length) return primeiro;
     const feitos = new Set(semana.map((x) => x.treino));
-    const ult = semana[semana.length - 1].treino;
-    for (let k = 1; k <= TOTAL_TREINOS; k++) {
-      const j = (ult + k) % TOTAL_TREINOS;
+    for (let j = 0; j < TOTAL_TREINOS; j++) {
       if (estado.treinos[j].exercicios.length && !feitos.has(j)) return j;
     }
-    return proximoTreinoApos(ult); // os 5 já feitos na semana: segue a sequência
+    return proximoTreinoApos(semana[semana.length - 1].treino); // os 5 já feitos: segue a sequência
+  }
+  // Treino de hoje: o que está em andamento → o escolhido para hoje → o próximo da sequência.
+  function treinoDeHoje() {
+    if (estado.sessao) return estado.sessao.treino;
+    const e = estado.escolhido;
+    if (e && e.dia === hoje() && estado.treinos[e.treino] && estado.treinos[e.treino].exercicios.length) return e.treino;
+    return proximoDaSequencia();
   }
 
   // Virada da semana (segunda-feira 00h): treino atual volta ao Treino 1 e o que ficou
@@ -410,6 +419,7 @@
     estado.atual = estado.sessao ? estado.sessao.treino : proximoDaSequencia();
     semanaOffset = 0;
     estado.semanaAtual = seg;
+    estado.escolhido = null;
     salvar();
     return true;
   }
@@ -430,7 +440,7 @@
 
     // Treino atual
     const s = estado.sessao;
-    const i = s ? s.treino : proximoDaSequencia();
+    const i = treinoDeHoje();
     const t = estado.treinos[i];
     $('iAtualNome').textContent = nomeTreino(i);
     const nSeries = t.exercicios.reduce((a, e) => a + e.series, 0);
@@ -440,6 +450,9 @@
     $('iAtualBtn').textContent = s ? 'CONTINUAR TREINO' : 'INICIAR TREINO';
     $('iAtualBtn').onclick = () => iniciarTreino(i);
     $('iAtualBtn').disabled = !t.exercicios.length;
+    $('iCancelar').hidden = !s;
+    const escolhidoHoje = !s && estado.escolhido && estado.escolhido.dia === hoje() && estado.escolhido.treino === i;
+    $('iTrocar').textContent = escolhidoHoje ? '⇄ Trocar de novo' : '⇄ Trocar treino';
     const descansouHoje = estado.descansos.includes(hoje());
     $('iDescanso').textContent = descansouHoje ? '✓ Descanso registrado hoje (toque para desfazer)' : 'Registrar dia de descanso';
 
@@ -663,6 +676,67 @@
   function zerarProgresso(ti) {
     estado.treinos[ti].exercicios.forEach((e) => { e.feitas = []; e.puladas = 0; e.nota = ''; });
   }
+  // ---------- Cancelar treino / trocar o treino de hoje ----------
+  function cancelarTreino() {
+    const s = estado.sessao;
+    if (!s) return;
+    const feitas = estado.treinos[s.treino].exercicios.reduce((a, e) => a + e.feitas.length, 0);
+    if (!confirm(`Cancelar o ${rotulo(s.treino)}${estado.treinos[s.treino].nome ? ' — ' + estado.treinos[s.treino].nome : ''}?\n\n${feitas ? `As ${feitas} série(s) registradas nele serão descartadas e ` : ''}nada vai para o histórico. O treino continua pendente na semana.`)) return;
+    zerarProgresso(s.treino);
+    estado.sessao = null;
+    if (estado.escolhido && estado.escolhido.treino === s.treino) estado.escolhido = null;
+    salvar();
+    if ($('dlgExercicios').open) $('dlgExercicios').close();
+    if (modoAberto()) fecharModo();
+    renderVista();
+    abrirTrocar(`${rotulo(s.treino)} cancelado. Qual treino você vai fazer hoje?`);
+  }
+
+  function abrirTrocar(titulo) {
+    $('dtTitulo').textContent = titulo || 'Qual treino você vai fazer hoje?';
+    const semana = feitosEstaSemana();
+    const sug = proximoDaSequencia();
+    const atual = treinoDeHoje();
+    const lista = $('dtLista'); lista.innerHTML = '';
+    estado.treinos.forEach((t, k) => {
+      if (!t.exercicios.length) return;
+      const feitos = semana.filter((x) => x.treino === k);
+      const sub = [
+        feitos.length ? `✓ feito esta semana (${feitos.map((x) => diaSemana(diaDoRegistro(x))).join(', ')})` : 'pendente esta semana',
+        `${t.exercicios.length} exercícios`,
+      ].join(' · ');
+      lista.append(h('button', { class: 'dt-item' + (k === atual ? ' atual' : '') + (feitos.length ? ' feito' : ''), onclick: () => escolherTreino(k) },
+        h('span', { class: 'dt-n', text: feitos.length ? '✓' : String(k + 1) }),
+        h('span', { class: 'dt-nome' }, `Treino ${k + 1} — ${t.nome}`, h('small', { text: sub })),
+        k === atual ? h('span', { class: 'selo', text: estado.sessao && estado.sessao.treino === k ? 'em andamento' : 'hoje' })
+          : k === sug ? h('span', { class: 'selo', text: 'sequência' }) : null));
+    });
+    $('dlgTrocar').showModal();
+  }
+
+  function escolherTreino(k) {
+    const s = estado.sessao;
+    if (s && s.treino !== k) {
+      const feitas = estado.treinos[s.treino].exercicios.reduce((a, e) => a + e.feitas.length, 0);
+      if (!confirm(`O ${rotulo(s.treino)} está em andamento${feitas ? ` (${feitas} série(s))` : ''}. Cancelar ele e fazer o ${rotulo(k)} hoje?`)) return;
+      zerarProgresso(s.treino);
+      estado.sessao = null;
+    }
+    estado.escolhido = k === proximoDaSequencia() ? null : { treino: k, dia: hoje() };
+    estado.atual = k;
+    salvar();
+    $('dlgTrocar').close();
+    if ($('dlgExercicios').open) $('dlgExercicios').close();
+    if (modoAberto() && (!estado.sessao || estado.sessao.treino !== k)) fecharModo();
+    renderVista();
+  }
+
+  $('iCancelar').onclick = cancelarTreino;
+  $('iTrocar').onclick = () => abrirTrocar();
+  $('deCancelar').onclick = cancelarTreino;
+  $('deTrocar').onclick = () => abrirTrocar();
+  $('dtFechar').onclick = () => $('dlgTrocar').close();
+
   function iniciarTreino(i) {
     const s = estado.sessao;
     if (s && s.treino !== i) {
@@ -772,7 +846,7 @@
   function renderProximo() {
     const p = $('proximo');
     p.innerHTML = '';
-    const prox = proximoDaSequencia();
+    const prox = treinoDeHoje();
     p.append('Próximo na sequência: ', h('b', { text: nomeTreino(prox) }));
   }
 
@@ -942,7 +1016,8 @@
     estado.historico = estado.historico.slice(0, 500);
     t.exercicios.forEach((e) => { e.feitas = []; e.nota = ''; e.puladas = 0; });
     estado.sessao = null;
-    estado.atual = proximoDaSequencia();
+    if (estado.escolhido && estado.escolhido.treino === ti) estado.escolhido = null;
+    estado.atual = treinoDeHoje();
     salvar();
     fecharModo();
     renderVista();

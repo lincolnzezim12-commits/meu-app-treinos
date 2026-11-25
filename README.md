@@ -67,7 +67,12 @@ demais avaliações são mantidos. Uma cópia fica no aparelho: Início → Dado
 
 A semana vai de segunda a domingo. Toda **segunda-feira às 00h** o progresso semanal zera e o
 **treino atual volta para o Treino 1**. Durante a semana, o próximo é o primeiro treino ainda não
-feito depois do último feito (T1 → T2 → T3 → T4 → T5). Treino aberto e não finalizado da semana
+feito na semana, na ordem T1 → T5 (um treino trocado continua pendente e volta a ser sugerido).
+
+**Cancelar / trocar treino**: com um treino em andamento, o Início mostra **Cancelar treino**
+(também em "Exercício X de Y ▾" dentro do treino). Cancelar descarta as séries daquele treino
+(nada vai para o histórico) e pergunta qual treino fazer hoje. **Trocar treino** escolhe outro
+treino só para hoje; o que ficou para depois continua pendente na semana. Treino aberto e não finalizado da semana
 anterior é descartado na virada; o histórico das semanas anteriores continua salvo (‹ ›).
 
 ## Ordem dos exercícios
